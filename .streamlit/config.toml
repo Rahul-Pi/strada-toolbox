@@ -1,0 +1,3 @@
+[browser]
+# Disable usage stats collection
+gatherUsageStats = false

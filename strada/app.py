@@ -29,6 +29,13 @@ st.set_page_config(
     layout="wide",
 )
 
+# Hide deploy button and menu items
+st.markdown("""
+    <style>
+        .stAppDeployButton {display:none;}
+    </style>
+    """, unsafe_allow_html=True)
+
 st.title("🛣️ STRADA Data Quality Assessment Toolkit")
 st.markdown(
     "Upload your **Olyckor** and **Personer** CSV files, select which checks "
@@ -149,7 +156,7 @@ with tab_verify:
 
             st.dataframe(
                 pd.DataFrame(summary_rows),
-                use_container_width=True,
+                width='stretch',
                 hide_index=True,
             )
 
@@ -164,7 +171,7 @@ with tab_verify:
                     with st.expander(
                         f"{r.check_id}: {r.check_name} — {len(r.details):,} issues"
                     ):
-                        st.dataframe(r.details, use_container_width=True, hide_index=True)
+                        st.dataframe(r.details, width='stretch', hide_index=True)
 
             # ── Download buttons ──────────────────────────────────────────
             st.subheader("Download reports")
@@ -232,11 +239,11 @@ with tab_classify:
                 counts = cykel["Micromobility_type"].value_counts().reset_index()
                 counts.columns = ["Type", "Count"]
                 counts["Percentage"] = (counts["Count"] / counts["Count"].sum() * 100).round(1)
-                st.dataframe(counts, use_container_width=True, hide_index=True)
+                st.dataframe(counts, width='stretch', hide_index=True)
 
             if len(multi_matches) > 0:
                 with st.expander(f"⚠ {len(multi_matches)} entries with multiple category matches"):
-                    st.dataframe(multi_matches, use_container_width=True, hide_index=True)
+                    st.dataframe(multi_matches, width='stretch', hide_index=True)
 
             for v in verif_results:
                 icon = {"pass": "✓", "warning": "⚠"}.get(v.status, "?")
@@ -246,7 +253,7 @@ with tab_classify:
                     st.warning(f"{icon} {v.check_id}: {v.summary}")
                     if v.details is not None:
                         with st.expander(f"Details for {v.check_id}"):
-                            st.dataframe(v.details, use_container_width=True, hide_index=True)
+                            st.dataframe(v.details, width='stretch', hide_index=True)
 
             # Download
             csv_buf = io.BytesIO()
