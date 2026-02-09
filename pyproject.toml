@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "strada-toolbox"
+version = "1.0.0"
+description = "Data quality assessment toolkit for STRADA (Swedish Traffic Accident Data Acquisition) datasets"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.9"
+authors = [
+    {name = "STRADA Data Quality Team"},
+]
+keywords = ["STRADA", "traffic", "accidents", "data-quality", "Sweden"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "pandas>=1.5",
+    "numpy>=1.21",
+    "openpyxl>=3.0",
+    "typer[all]>=0.9",
+    "rich>=13.0",
+]
+
+[project.optional-dependencies]
+web = ["streamlit>=1.28"]
+dev = ["pytest>=7.0", "pytest-cov"]
+
+[project.scripts]
+strada = "strada.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["strada*"]
