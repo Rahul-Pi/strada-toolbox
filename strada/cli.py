@@ -226,9 +226,9 @@ def classify(
     console.print(f"  Persons: {len(df):,}")
 
     console.print(f"\n[bold]Classifying micromobility types…[/bold]")
-    df, verif_results, multi_matches = run_classification_pipeline(df)
+    df, verif_results, multi_matches, stats = run_classification_pipeline(df)
 
-    # Summary
+    # Classification summary
     cykel = df[df["Micromobility_type"] != "N/A"]
     if len(cykel) > 0:
         table = Table(title="Micromobility Classification")

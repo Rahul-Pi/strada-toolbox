@@ -41,6 +41,16 @@ COL_ROLE_S = "Trafikantroll (S)"
 COL_EVENT_P = "Händelseförlopp (P)"
 COL_EVENT_S = "Händelseförlopp (S)"
 
+# Police-specific columns
+COL_TE_NR_P = "Trafikelement Nr (P)"
+
+# Hospital-specific columns
+COL_KONFLIKT_UG = "I Konflikt med - Undergrupp"
+
+# Report columns
+COL_POLICE_REPORT = "Polisrapport"
+COL_HOSPITAL_REPORT = "Sjukvårdsrapport"
+
 # Injury columns
 COL_MAIS = "MAIS"
 COL_INJURY_SEVERITY = "Sammanvägd skadegrad"
@@ -98,7 +108,9 @@ MICROMOBILITY_KEYWORDS: dict[str, list[str]] = {
         "scotter", "elscotter", "el-scotter",
         "elscoter", "el-scotty", "sparkcykel",
         "voi", "voien", "VOJ", "lime", "bird", "tier", "ryde",
-        "spark",
+        "spark", "Eldrivet enpersonsfordon", "elsparcyklar", "El-kick", 
+        "eldrivet enpersonfordon", "Eldrivna enpersonsfordonet",
+        "elsccoter",
     ],
     "E-bike": [
         "elcykel", "e-bike", "elcyklar", "el-cykel", "el-cyklar",
@@ -110,7 +122,7 @@ MICROMOBILITY_KEYWORDS: dict[str, list[str]] = {
         "fatbike", "fat-bike", "fatbiken",
         "speed pedelec", "speedpedelec",
         "el-bike", "el bike", "elcyckel",
-        "lådcykeln",
+        "lådcykeln", "låd cykel", "lådcykel", "lådcykel", "lådcykeln",
     ],
     "rullstol/permobil": [
         "rullstol", "permobil", "elrullstol", "el-rullstol", "rullstolar",
@@ -119,11 +131,12 @@ MICROMOBILITY_KEYWORDS: dict[str, list[str]] = {
         "elskateboarden", "elskateboard", "enhjuling", "onewheel",
         "el-skateboard", "elmoped", "långboard", "el-långboard",
         "hoverboard", "elhoverboard", "el-hoverboard", "moped", "el-moped",
+        "skateboard", "inlines",
     ],
 }
 
 WHOLE_WORD_KEYWORDS: set[str] = {
-    "voi", "voien", "VOJ", "lime", "bird", "tier", "ryde", "spark",
+    "voi", "voien", "voj", "lime", "bird", "tier", "ryde", "spark",
 }
 
 MICROMOBILITY_PRIORITY: list[str] = [
@@ -138,6 +151,35 @@ ELECTRIC_UNDERGRUPP: set[str] = {
     "Elcykel",
     "Eldrivet enpersonsfordon",
     "Sparkcykel",
+    "Eldriven rullstol",
+}
+
+# Undergrupp → Micromobility_type mapping (used in Step 3 fallback)
+UNDERGRUPP_MAP: dict[str, str] = {
+    "Elcykel": "E-bike",
+    "Eldrivet enpersonsfordon": "E-scooter",
+    "Eldriven rullstol": "rullstol/permobil",
+    "Sparkcykel": "E-scooter",
+    "Rullstol": "rullstol/permobil",
+    "Inlines": "other_micromobility",
+    "Skateboard": "other_micromobility",
+    "Cykel - Annan": "Conventional bicycle",
+    "Cykel": "Conventional bicycle",
+}
+
+# "I Konflikt med - Undergrupp" values indicating the CONFLICT PARTNER is
+# a specific micromobility type (used in Step 2 Guard B, hospital-only)
+CONFLICT_PARTNER_EXCLUSIONS: dict[str, set[str]] = {
+    "E-scooter": {"Eldrivet enpersonsfordon", "Sparkcykelåkare"},
+    "E-bike": {"Elcykel"},
+    "rullstol/permobil": {"Eldriven rullstol", "Rullstolsburen"},
+}
+
+# Undergrupp (P) values that indicate a specific electric type (Step 1 Guard C)
+SPECIFIC_UNDERGRUPP_P: set[str] = {
+    "Eldrivet enpersonsfordon",
+    "Elcykel",
+    "Eldriven rullstol",
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════

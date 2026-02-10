@@ -230,7 +230,7 @@ with tab_classify:
             from strada.core.classify import run_classification_pipeline
 
             with st.spinner("Classifying…"):
-                df_out, verif_results, multi_matches = run_classification_pipeline(df_cls)
+                df_out, verif_results, multi_matches, stats = run_classification_pipeline(df_cls)
 
             # Summary
             cykel = df_out[df_out["Micromobility_type"] != "N/A"]
