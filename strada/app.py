@@ -215,7 +215,7 @@ with tab_classify:
     st.header("Micromobility Classification")
     st.markdown(
         "Classify Cykel entries into **E-scooter**, **E-bike**, "
-        "**Conventional bicycle**, etc. and add a **Conflict partner** column."
+        "**Conventional bicycle**, etc. and add a **Micromobility_type** column."
     )
 
     personer_cls = st.file_uploader(
@@ -401,7 +401,6 @@ tables:
 
 The **Classify** tab / `strada classify` command adds:
 - **Micromobility_type** — E-scooter, E-bike, Conventional bicycle, etc.
-- **Conflict_partner** — Other road-user types involved in the same crash.
 
 ### Links
 

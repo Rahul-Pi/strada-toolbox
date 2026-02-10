@@ -544,56 +544,6 @@ def verify_classification(
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Conflict partner
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def add_conflict_partner(
-    df_personer: pd.DataFrame,
-) -> pd.DataFrame:
-    """Add a ``Conflict_partner`` column for Cykel persons.
-
-    For each Cykel person in a crash, lists the ``Huvudgrupp`` of all *other*
-    persons in the same crash.  For single-person crashes (singel), the value
-    is ``"Single"``.
-
-    Parameters
-    ----------
-    df_personer : pd.DataFrame
-        Modified in-place and returned.
-
-    Returns
-    -------
-    pd.DataFrame
-    """
-    crash_categories = (
-        df_personer
-        .groupby(COL_CRASH_ID)[COL_CATEGORY_MAIN]
-        .apply(list)
-        .to_dict()
-    )
-
-    def _get_partners(row: pd.Series) -> str:
-        if row[COL_CATEGORY_MAIN] != CYKEL_CATEGORY:
-            return "N/A"
-        crash_id = row[COL_CRASH_ID]
-        all_cats = list(crash_categories.get(crash_id, []))
-        if CYKEL_CATEGORY in all_cats:
-            all_cats.remove(CYKEL_CATEGORY)
-        if not all_cats:
-            return "Single"
-        seen: list[str] = []
-        for c in all_cats:
-            if c not in seen and pd.notna(c):
-                seen.append(c)
-        return ", ".join(seen)
-
-    df_personer["Conflict_partner"] = df_personer.apply(
-        _get_partners, axis=1
-    )
-    return df_personer
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
 # Public pipeline entry-point
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -604,7 +554,6 @@ def run_classification_pipeline(
 
     1. Classify micromobility types (4-step guarded).
     2. Verify classifications.
-    3. Add conflict partners.
 
     Returns
     -------
@@ -612,7 +561,6 @@ def run_classification_pipeline(
     """
     df, stats = classify_micromobility(df_personer)
     res_2a, res_2b, multi = verify_classification(df)
-    df = add_conflict_partner(df)
 
     # Clean up internal columns
     df.drop(
