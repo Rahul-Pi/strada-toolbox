@@ -191,7 +191,7 @@ strada verify \
 
 ### 3. `classify` (Cycling-specific)
 
-Classifies Cykel entries into micromobility types and adds a conflict-partner column.
+Classifies Cykel entries into micromobility types and adds a Micromobility_type column.
 
 ```bash
 strada classify \
@@ -207,7 +207,9 @@ strada classify \
 | `--output-name` | Output file name (default: `Personer-analysis-ready.csv`) |
 
 **What it adds:**
-- `Micromobility_type` column: `Conventional bicycle`, `E-bike`, `E-scooter`, `rullstol/permobil`, `other_micromobility`, `Unknown`, or `N/A` (non-Cykel rows)
+- `Micromobility_type` column: `Conventional bicycle`, `E-bike`, `E-scooter`, `rullstol/permobil`, `other_micromobility`, or `N/A` (non-Cykel rows)
+- `Classification_confidence` column: `high`, `medium`, or `low` depending on how much evidence supported the classification
+- `Classification_step` column: Which pipeline step produced the result (e.g. `Step 1 – P keywords`, `Step 3 – Undergrupp fallback`, `Step 4 – default`)
 - `Conflict_partner` column: Other road-user types in the same crash (e.g. `Personbil`, `Fotgängare`), or `Single` for single-vehicle crashes
 
 ### 4. `web` (Dashboard)
@@ -339,28 +341,65 @@ Flags crashes where **all** Cykel entries are passengers (no driver/cyclist). Th
 
 ## Micromobility Classification
 
-The `classify` command / Classify tab is specific to cycling/micromobility analyses. It processes the free-text event descriptions (`Händelseförlopp (P)` and `(S)`) to determine whether each Cykel entry is:
+The `classify` command / Classify tab is specific to cycling/micromobility analyses. It classifies each Cykel entry by searching the free-text event descriptions and structured STRADA fields.
 
 | Type | Description |
 |------|-------------|
-| `Conventional bicycle` | Standard pedal-powered bicycle |
+| `Conventional bicycle` | Standard pedal-powered bicycle (default) |
 | `E-bike` | Electrically assisted bicycle |
 | `E-scooter` | Electric kick-scooter (elsparkcykel) |
 | `rullstol/permobil` | Wheelchair / powered wheelchair |
-| `other_micromobility` | Skateboard, hoverboard, moped, etc. |
-| `Unknown` | Both event description columns are empty |
+| `other_micromobility` | Skateboard, hoverboard, inlines, etc. |
 | `N/A` | Not a Cykel entry |
 
-### Classification logic
+### Classification pipeline
 
-1. **Priority column:** `Händelseförlopp (P)` is checked first; `(S)` is used only if `(P)` is empty.
-2. **Keyword matching:** Case-insensitive search for Swedish keywords (e.g., "elcykel", "elsparkcykel", "voi"). Brand names like "voi", "lime", "bird" use whole-word matching to avoid false positives.
-3. **Multi-match resolution:** If multiple categories match, priority order is: E-scooter > E-bike > rullstol/permobil > other_micromobility > Conventional bicycle.
-4. **Fallback:** If no keywords match, the `Sammanvägd Trafikantkategori - Undergrupp` column is checked (`Elcykel` → E-bike, `Eldrivet enpersonsfordon` → E-scooter).
+The classifier uses a **4-step guarded pipeline** designed to handle a key data challenge: the police narrative `Händelseförlopp (P)` is shared by all persons in the same crash. In multi-Cykel crashes (e.g. a conventional bicycle and an e-scooter in the same collision), naively scanning `(P)` would mis-label every person with whatever keyword appears first. The guards prevent this contamination.
 
-### Conflict partner
+#### Step 1 — Police narrative `(P)` with guards
 
-The `Conflict_partner` column lists the road-user types of the *other* persons involved in the same crash. For single-vehicle crashes, the value is `"Single"`.
+Search `Händelseförlopp (P)` for micromobility keywords.
+
+| Guard | Condition | Action |
+|-------|-----------|--------|
+| **A – Solo Cykel** | Only one Cykel person in the crash | Accept the match directly (no ambiguity) |
+| **B – Trafikelement Nr** | Person's `Trafikelement Nr (P)` appears next to the keyword in the text | Accept (keyword is about this person) |
+| **C – Undergrupp cross-ref** | Person's own Undergrupp confirms the matched type | Accept |
+| **D – Fallthrough** | None of the above hold | Do **not** trust `(P)` for this person; fall through to Step 2 |
+
+#### Step 2 — Hospital narrative `(S)` with guards
+
+Search `Händelseförlopp (S)` for micromobility keywords. `(S)` is written per-person, so contamination is less likely, but the *conflict partner* can still be mentioned.
+
+| Guard | Condition | Action |
+|-------|-----------|--------|
+| **A – Solo Cykel** | Only one Cykel person in the crash | Accept the match directly |
+| **B – Conflict partner** | The person's `I Konflikt med – Undergrupp` matches the keyword type | Reject (the keyword describes the opponent, not the person) |
+| **C – Per-person** | Guard B did not fire | Accept (assume `(S)` describes this person) |
+
+#### Step 3 — Undergrupp fallback
+
+If neither narrative produced a match, map the person's `Sammanvägd Trafikantkategori – Undergrupp` value (e.g. `Elcykel` → E-bike, `Eldrivet enpersonsfordon` → E-scooter, `Eldriven rullstol` → rullstol/permobil).
+
+#### Step 4 — Default
+
+If all previous steps produced no match, classify as `Conventional bicycle`.
+
+### Keyword matching details
+
+- **Case-insensitive** search for Swedish keywords (e.g. *elcykel*, *elsparkcykel*, *kickbike*).
+- **Whole-word matching** for brand names (`voi`, `lime`, `bird`, `tier`, `bolt`) to avoid false positives.
+- **Multi-match resolution:** If keywords from multiple categories match in the same text, priority order is: E-scooter > E-bike > rullstol/permobil > other_micromobility > Conventional bicycle.
+
+### Confidence levels
+
+Each classified person receives a `Classification_confidence` value:
+
+| Confidence | Meaning |
+|------------|---------|
+| `high` | Keyword found in narrative and confirmed by a guard |
+| `medium` | Classified via Undergrupp fallback (Step 3) |
+| `low` | No evidence found; defaulted to Conventional bicycle (Step 4) |
 
 ---
 
