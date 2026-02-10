@@ -114,7 +114,7 @@ Run `strada --help` to see all commands:
 ╭─ Commands ────────────────────────────────────────────────────╮
 │ preprocess   Convert a STRADA Excel workbook to CSV           │
 │ verify       Run data-quality verification checks             │
-│ classify     Classify micromobility types (cycling analysis)   │
+│ classify     Classify micromobility types (cycling analysis)  │
 │ web          Launch the web dashboard                         │
 ╰───────────────────────────────────────────────────────────────╯
 ```
