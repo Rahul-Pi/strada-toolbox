@@ -210,7 +210,6 @@ strada classify \
 - `Micromobility_type` column: `Conventional bicycle`, `E-bike`, `E-scooter`, `rullstol/permobil`, `other_micromobility`, or `N/A` (non-Cykel rows)
 - `Classification_confidence` column: `high`, `medium`, or `low` depending on how much evidence supported the classification
 - `Classification_step` column: Which pipeline step produced the result (e.g. `Step 1 – P keywords`, `Step 3 – Undergrupp fallback`, `Step 4 – default`)
-- `Conflict_partner` column: Other road-user types in the same crash (e.g. `Personbil`, `Fotgängare`), or `Single` for single-vehicle crashes
 
 ### 4. `web` (Dashboard)
 
