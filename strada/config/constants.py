@@ -123,6 +123,7 @@ MICROMOBILITY_KEYWORDS: dict[str, list[str]] = {
         "speed pedelec", "speedpedelec",
         "el-bike", "el bike", "elcyckel",
         "lådcykeln", "låd cykel", "lådcykel", "lådcykel", "lådcykeln",
+        'elcyklist', 'el-cyklist',
     ],
     "rullstol/permobil": [
         "rullstol", "permobil", "elrullstol", "el-rullstol", "rullstolar",
