@@ -54,6 +54,70 @@ def _load_df(uploaded_file) -> pd.DataFrame:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+#  Verify-tab bundles & checks
+# ─────────────────────────────────────────────────────────────────────────────
+
+BUNDLES: dict[str, dict] = {
+    "quick": {
+        "name": "Quick scan",
+        "icon": "",
+        "description": "Fast sanity check. Runs the 3 essential identifier checks.",
+        "checks": ["G1", "G2", "G3"],
+        "checks_label": "G1, G2, G3",
+        "runtime": "~6s",
+        "recommended": True,
+    },
+    "full": {
+        "name": "Full audit",
+        "icon": "",
+        "description": "All generic checks for a publication-ready dataset.",
+        "checks": ["G1", "G2", "G3", "G4", "G5", "G6"],
+        "checks_label": "G1, G2, G3, G4, G5, G6",
+        "runtime": "~18s",
+    },
+    "cycling": {
+        "name": "Cycling audit",
+        "icon": "🚲",
+        "description": "Full audit plus the three cycling-specific structural checks.",
+        "checks": ["G1", "G2", "G3", "G4", "G5", "G6", "C1", "C2", "C3"],
+        "checks_label": "G1–G6 · C1, C2, C3",
+        "runtime": "~24s",
+    },
+}
+
+# (id, label, severity tag) — "C" = critical, "W" = warning
+CHECKS: list[tuple[str, str, str]] = [
+    ("G1", "Crash-ID consistency",      "C"),
+    ("G2", "Crash-type consistency",    "C"),
+    ("G3", "Road-user category",        "C"),
+    ("G4", "Timeline consistency",      "W"),
+    ("G5", "Location consistency",      "W"),
+    ("G6", "Duplicate person",          "W"),
+    ("C1", "Cykel singel validation",   "C"),
+    ("C2", "Cykel presence",            "W"),
+    ("C3", "Cykel passengers only",     "W"),
+]
+
+
+def _apply_bundle(bundle_id: str) -> None:
+    """Apply a preset to the check checkboxes."""
+    st.session_state.active_bundle = bundle_id
+    wanted = set(BUNDLES[bundle_id]["checks"])
+    for cid, _, _ in CHECKS:
+        st.session_state[f"chk_{cid}"] = cid in wanted
+
+
+def _on_check_toggle() -> None:
+    """If the new check set matches a preset, snap to it; otherwise mark Custom."""
+    current = {cid for cid, _, _ in CHECKS if st.session_state.get(f"chk_{cid}", False)}
+    for bid, b in BUNDLES.items():
+        if set(b["checks"]) == current:
+            st.session_state.active_bundle = bid
+            return
+    st.session_state.active_bundle = "custom"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 #  Tabs
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -91,37 +155,166 @@ with tab_verify:
         )
 
         st.subheader("Select checks")
-        col1, col2 = st.columns(2)
+        st.caption("Pick a preset for common workflows or customize for full control.")
 
-        with col1:
-            st.markdown("**Generic checks**")
-            run_g1 = st.checkbox("G1 — Crash-ID consistency", value=True)
-            run_g2 = st.checkbox("G2 — Crash-type consistency", value=True)
-            run_g3 = st.checkbox("G3 — Road-user category consistency", value=True)
-            run_g4 = st.checkbox("G4 — Timeline consistency", value=True)
-            run_g5 = st.checkbox("G5 — Location consistency", value=True)
-            run_g6 = st.checkbox("G6 — Duplicate person detection", value=True)
+        # Initialise state once per session
+        if "active_bundle" not in st.session_state:
+            _apply_bundle("full")
 
-        with col2:
-            st.markdown("**Cycling-specific checks**")
-            run_c1 = st.checkbox("C1 — G1 (cykel singel) validation", value=False)
-            run_c2 = st.checkbox("C2 — Cykel presence", value=False)
-            run_c3 = st.checkbox("C3 — Cykel passengers only", value=False)
+        # ── Bundle preset cards ───────────────────────────────────────
+        bcols = st.columns(3, gap="medium")
+        for col, bid in zip(bcols, BUNDLES.keys()):
+            b = BUNDLES[bid]
+            is_active = st.session_state.active_bundle == bid
+            with col:
+                with st.container(border=True):
+                    head_l, head_r = st.columns([3, 2])
+                    with head_l:
+                        title = f"{b['icon']} {b['name']}".strip()
+                        st.markdown(f"#### {title}")
+                    with head_r:
+                        if is_active:
+                            st.markdown(
+                                "<div style='text-align:right;font-size:1.3em;color:#1f77b4'>✓</div>",
+                                unsafe_allow_html=True,
+                            )
+                        elif b.get("recommended"):
+                            st.markdown(
+                                "<div style='text-align:right'><span style='background:#fff3cd;"
+                                "color:#664d03;padding:2px 8px;border-radius:10px;"
+                                "font-size:0.7em;font-weight:600;letter-spacing:0.5px'>"
+                                "RECOMMENDED</span></div>",
+                                unsafe_allow_html=True,
+                            )
 
-        selected = []
-        if run_g1: selected.append("G1")
-        if run_g2: selected.append("G2")
-        if run_g3: selected.append("G3")
-        if run_g4: selected.append("G4")
-        if run_g5: selected.append("G5")
-        if run_g6: selected.append("G6")
-        if run_c1: selected.append("C1")
-        if run_c2: selected.append("C2")
-        if run_c3: selected.append("C3")
+                    st.caption(b["description"])
+
+                    meta_l, meta_r = st.columns(2)
+                    with meta_l:
+                        st.markdown(
+                            f"<div style='font-size:0.7em;color:#888;letter-spacing:0.5px'>CHECKS</div>"
+                            f"<div style='font-size:0.9em'>{b['checks_label']}</div>",
+                            unsafe_allow_html=True,
+                        )
+                    with meta_r:
+                        st.markdown(
+                            f"<div style='font-size:0.7em;color:#888;letter-spacing:0.5px;text-align:right'>RUNTIME</div>"
+                            f"<div style='font-size:0.9em;text-align:right'>{b['runtime']}</div>",
+                            unsafe_allow_html=True,
+                        )
+
+                    st.button(
+                        "✓ Selected" if is_active else "Select",
+                        key=f"btn_bundle_{bid}",
+                        on_click=_apply_bundle,
+                        args=(bid,),
+                        disabled=is_active,
+                        type="primary" if is_active else "secondary",
+                        use_container_width=True,
+                    )
+
+        # ── Customize checks (collapsible grid) ───────────────────────
+        selected = [cid for cid, _, _ in CHECKS if st.session_state.get(f"chk_{cid}", False)]
+        bundle_label = (
+            "Custom"
+            if st.session_state.active_bundle == "custom"
+            else BUNDLES[st.session_state.active_bundle]["name"]
+        )
+
+        with st.expander(
+            f"Customize checks  ·  {len(selected)} selected  ·  {bundle_label}",
+            expanded=False,
+        ):
+            st.caption("Edits switch the bundle to *Custom*.")
+            ccols = st.columns(3, gap="medium")
+            for i, (cid, label, tag) in enumerate(CHECKS):
+                with ccols[i % 3]:
+                    tag_md = ":red[**C**]" if tag == "C" else ":orange[**W**]"
+                    st.checkbox(
+                        f"**{cid}** · {label} · {tag_md}",
+                        key=f"chk_{cid}",
+                        on_change=_on_check_toggle,
+                    )
 
         include_cycling = any(c.startswith("C") for c in selected)
 
-        if st.button("▶ Run selected checks", type="primary", key="btn_verify"):
+        # ── Ready-to-run banner ───────────────────────────────────────
+        if st.session_state.active_bundle == "custom":
+            runtime_est = f"~{max(3, len(selected) * 3)}s"
+            display_label = "Custom"
+        else:
+            _b = BUNDLES[st.session_state.active_bundle]
+            runtime_est = _b["runtime"]
+            display_label = _b["name"]
+
+        st.markdown(
+            """
+            <style>
+            /* Paint the whole columns row navy when it contains our marker */
+            div[data-testid="stHorizontalBlock"]:has(.strada-banner-marker) {
+                background: #0a2540;
+                border-radius: 10px;
+                padding: 14px 22px;
+                margin-top: 16px;
+                align-items: center;
+            }
+            /* Tint the primary button inside the banner to cyan */
+            div[data-testid="stHorizontalBlock"]:has(.strada-banner-marker)
+                button[data-testid="stBaseButton-primary"] {
+                background: #29b6f6 !important;
+                border: 1px solid #29b6f6 !important;
+                color: #ffffff !important;
+            }
+            div[data-testid="stHorizontalBlock"]:has(.strada-banner-marker)
+                button[data-testid="stBaseButton-primary"]:hover {
+                background: #0288d1 !important;
+                border-color: #0288d1 !important;
+            }
+            div[data-testid="stHorizontalBlock"]:has(.strada-banner-marker)
+                button[data-testid="stBaseButton-primary"]:disabled {
+                background: #2c4a6a !important;
+                border-color: #2c4a6a !important;
+                color: #8ea4be !important;
+            }
+            .strada-banner-text .lbl {
+                font-size: 0.7em;
+                color: #8ea4be;
+                letter-spacing: 1.5px;
+                font-weight: 700;
+            }
+            .strada-banner-text .ttl {
+                font-size: 1.05em;
+                font-weight: 600;
+                margin-bottom: 10px;
+                color: #e6edf5;            }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        banner_l, banner_r = st.columns([4, 1.3], vertical_alignment="center", gap="small")
+        with banner_l:
+            checks_word = "check" if len(selected) == 1 else "checks"
+            st.markdown(
+                f"""
+                <div class="strada-banner-text">
+                  <div class="lbl">READY TO RUN</div>
+                  <div class="ttl">{display_label} · {len(selected)} {checks_word} · est. {runtime_est}</div>
+                </div>
+                <div class="strada-banner-marker"></div>
+                """,
+                unsafe_allow_html=True,
+            )
+        with banner_r:
+            run_clicked = st.button(
+                "▶ Run verification",
+                type="primary",
+                key="btn_verify",
+                disabled=len(selected) == 0,
+                use_container_width=True,
+            )
+
+        if run_clicked:
             from strada.core.verify import run_checks
             from strada.io.reporters import write_text_report, write_csv_report
 
