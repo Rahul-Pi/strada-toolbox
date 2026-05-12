@@ -132,7 +132,7 @@ def check_g1_id_consistency(
 
     return VerificationResult(
         check_id="G1",
-        check_name="Crash-ID (Olycksnummer) consistency",
+        check_name="",
         status=_status_for("G1", n_issues),
         summary=summary,
         issue_count=n_issues,
@@ -174,7 +174,7 @@ def check_g2_crash_type(
 
     sub_results.append(VerificationResult(
         check_id="G2.1",
-        check_name="Missing Olyckstyp",
+        check_name="Missing crash type (Olyckstyp blank)",
         status=_status_for("G2.1", n_missing),
         summary=sub1_summary,
         issue_count=n_missing,
@@ -206,7 +206,7 @@ def check_g2_crash_type(
 
     sub_results.append(VerificationResult(
         check_id="G2.2",
-        check_name="Olyckstyp mismatch between datasets",
+        check_name="Crash type differs between Olyckor and Personer",
         status=_status_for("G2.2", len(mismatched)),
         summary=sub2_summary,
         issue_count=len(mismatched),
@@ -216,7 +216,7 @@ def check_g2_crash_type(
     total_issues = sum(s.issue_count for s in sub_results)
     return VerificationResult(
         check_id="G2",
-        check_name="Crash-type (Olyckstyp) consistency",
+        check_name="",
         status=_status_for("G2", total_issues),
         summary=f"{total_issues} total issues across sub-checks",
         issue_count=total_issues,
@@ -241,13 +241,13 @@ def check_g3_road_user_category(
     col_s = COL_CATEGORY_S
     col_sam = COL_CATEGORY_SUB
 
-    # --- G3.1 — all three missing ---
+    # --- G3.1 — all Trafikantkategori missing ---
     all_missing = df_personer[_empty(df_personer[col_p]) & _empty(df_personer[col_s]) & _empty(df_personer[col_sam])]
     n31 = len(all_missing)
     details31 = all_missing[[COL_CRASH_ID]].drop_duplicates() if n31 > 0 else None
     sub_results.append(VerificationResult(
         check_id="G3.1",
-        check_name="All three Trafikantkategori columns missing",
+        check_name="All road-user category fields blank (P, S, Sammanvägd)",
         status=_status_for("G3.1", n31),
         summary=f"{'✓ All persons have at least one Trafikantkategori column filled' if n31 == 0 else f'⚠ {n31} persons with all three columns missing'}",
         issue_count=n31,
@@ -264,7 +264,7 @@ def check_g3_road_user_category(
     details32 = mismatched_ps[[COL_CRASH_ID, col_p, col_s]].copy() if n32 > 0 else None
     sub_results.append(VerificationResult(
         check_id="G3.2",
-        check_name="P and S categories mismatch when both filled",
+        check_name="Police (P) and hospital (S) disagree on category",
         status=_status_for("G3.2", n32),
         summary=(
             f"✓ All {len(both_filled)} persons with both P and S filled have matching values"
@@ -300,7 +300,7 @@ def check_g3_road_user_category(
     n33 = len(mismatch_33)
     sub_results.append(VerificationResult(
         check_id="G3.3",
-        check_name="Filled P/S ≠ Sammanvägd",
+        check_name="Combined (Sammanvägd) disagrees with the filled P/S source",
         status=_status_for("G3.3", n33),
         summary=(
             "✓ All filled P/S categories match Sammanvägd"
@@ -330,7 +330,7 @@ def check_g3_road_user_category(
     n34 = len(mismatch_34)
     sub_results.append(VerificationResult(
         check_id="G3.4",
-        check_name="Neither P nor S matches Sammanvägd (both filled)",
+        check_name="Combined (Sammanvägd) matches neither P nor S (both filled)",
         status=_status_for("G3.4", n34),
         summary=(
             "✓ At least one of P/S matches Sammanvägd in all cases"
@@ -344,7 +344,7 @@ def check_g3_road_user_category(
     total = sum(s.issue_count for s in sub_results)
     return VerificationResult(
         check_id="G3",
-        check_name="Road-user category (Trafikantkategori) consistency",
+        check_name="",
         status=_status_for("G3", total),
         summary=f"{total} total issues across sub-checks",
         issue_count=total,
@@ -420,7 +420,7 @@ def check_g4_timeline(
 
     return VerificationResult(
         check_id="G4",
-        check_name="Crash timeline consistency",
+        check_name="",
         status=_status_for("G4", n),
         summary=summary,
         issue_count=n,
@@ -468,7 +468,7 @@ def check_g5_location(
 
     return VerificationResult(
         check_id="G5",
-        check_name="Location consistency (Län / Kommun)",
+        check_name="",
         status=_status_for("G5", n),
         summary=(
             "✓ All crashes have consistent location"
@@ -498,7 +498,7 @@ def check_g6_duplicate_persons(
         # Check could not run — escalate to critical so it can't be ignored.
         return VerificationResult(
             check_id="G6",
-            check_name="Duplicate person detection",
+            check_name="",
             status="critical",
             summary=f"✗ Missing columns: {missing_cols}",
             issue_count=0,
@@ -542,7 +542,7 @@ def check_g6_duplicate_persons(
 
     return VerificationResult(
         check_id="G6",
-        check_name="Duplicate person detection (all road-user types)",
+        check_name="",
         status=_status_for("G6", n),
         summary=(
             "✓ No potential duplicate persons found"
@@ -612,7 +612,7 @@ def check_c1_cykel_singel(
 
     return VerificationResult(
         check_id="C1",
-        check_name="Cykel singel crash validation",
+        check_name="",
         status=_status_for("C1", n),
         summary=(
             f"✓ All {len(singel_ids)} cykel singel crashes have exactly one Cykel entry"
@@ -652,7 +652,7 @@ def check_c2_cykel_presence(
 
     return VerificationResult(
         check_id="C2",
-        check_name="Cykel presence in every crash",
+        check_name="",
         status=_status_for("C2", n),
         summary=(
             f"✓ All {len(has_cykel)} crashes have at least one Cykel entry"
@@ -679,7 +679,7 @@ def check_c3_cykel_passengers_only(
     if len(cykel) == 0:
         return VerificationResult(
             check_id="C3",
-            check_name="Cykel crashes with only passengers (no driver)",
+            check_name="",
             status="pass",
             summary="No Cykel entries in dataset",
             issue_count=0,
@@ -704,7 +704,7 @@ def check_c3_cykel_passengers_only(
 
     return VerificationResult(
         check_id="C3",
-        check_name="Cykel crashes with only passengers (no driver)",
+        check_name="",
         status=_status_for("C3", n),
         summary=(
             f"✓ All Cykel crashes have at least one driver/cyclist"

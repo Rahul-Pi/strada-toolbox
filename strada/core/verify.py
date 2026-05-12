@@ -67,7 +67,7 @@ CHECK_SPECS: list[CheckSpec] = [
     CheckSpec(
         id="G1",
         name="Crash-ID consistency",
-        description="Crash-ID consistency between datasets",
+        description="Every Olycksnummer should appear in both Olyckor and Personer.",
         severity=CHECK_SEVERITY["G1"],
         category="identifier",
         family="generic",
@@ -76,7 +76,7 @@ CHECK_SPECS: list[CheckSpec] = [
     CheckSpec(
         id="G2",
         name="Crash-type consistency",
-        description="Crash-type (Olyckstyp) consistency",
+        description="Olyckstyp should be filled and consistent between Olyckor and Personer.",
         severity=CHECK_SEVERITY["G2"],
         category="identifier",
         family="generic",
@@ -85,7 +85,7 @@ CHECK_SPECS: list[CheckSpec] = [
     CheckSpec(
         id="G3",
         name="Road-user category",
-        description="Road-user category (Trafikantkategori)",
+        description="Road-user category should be filled and consistent across the police (P), hospital (S), and combined (Sammanvägd) columns.",
         severity=CHECK_SEVERITY["G3"],
         category="identifier",
         family="generic",
@@ -93,8 +93,8 @@ CHECK_SPECS: list[CheckSpec] = [
     ),
     CheckSpec(
         id="G4",
-        name="Timeline consistency",
-        description="Crash timeline consistency (date & time)",
+        name="Crash time/date consistency",
+        description="All persons in the same crash should report the same date and hour bucket.",
         severity=CHECK_SEVERITY["G4"],
         category="temporal_spatial",
         family="generic",
@@ -102,8 +102,8 @@ CHECK_SPECS: list[CheckSpec] = [
     ),
     CheckSpec(
         id="G5",
-        name="Location consistency",
-        description="Location consistency (Län / Kommun)",
+        name="Crash location consistency",
+        description="All persons in the same crash should report the same Län and Kommun.",
         severity=CHECK_SEVERITY["G5"],
         category="temporal_spatial",
         family="generic",
@@ -111,8 +111,8 @@ CHECK_SPECS: list[CheckSpec] = [
     ),
     CheckSpec(
         id="G6",
-        name="Duplicate person",
-        description="Duplicate person detection",
+        name="Duplicate person detection",
+        description="Detect potential duplicate persons appearing under different crash IDs (matched on demographics, time, place, and road-user type).",
         severity=CHECK_SEVERITY["G6"],
         category="duplicates",
         family="generic",
@@ -120,8 +120,8 @@ CHECK_SPECS: list[CheckSpec] = [
     ),
     CheckSpec(
         id="C1",
-        name="Cykel singel validation",
-        description="Cykel singel crash validation",
+        name="Cykel singel crash validation",
+        description="Crashes coded 'cykel singel' (single cyclist) should contain exactly one person, recorded as a cyclist.",
         severity=CHECK_SEVERITY["C1"],
         category="cycling_structure",
         family="cycling",
@@ -129,8 +129,8 @@ CHECK_SPECS: list[CheckSpec] = [
     ),
     CheckSpec(
         id="C2",
-        name="Cykel presence",
-        description="Cykel presence in every crash",
+        name="Cykel presence in every crash",
+        description="Every crash in a cycling-filtered dataset should include at least one cyclist.",
         severity=CHECK_SEVERITY["C2"],
         category="cycling_structure",
         family="cycling",
@@ -138,8 +138,8 @@ CHECK_SPECS: list[CheckSpec] = [
     ),
     CheckSpec(
         id="C3",
-        name="Cykel passengers only",
-        description="Cykel crashes with only passengers",
+        name="Cykel crash missing the cyclist",
+        description="Cykel crashes should record the cyclist (driver), not only passengers.",
         severity=CHECK_SEVERITY["C3"],
         category="cycling_structure",
         family="cycling",
@@ -218,7 +218,9 @@ def run_checks(
             continue
         if checks is not None and spec.id not in checks:
             continue
-        results.append(spec.func(df_olyckor, df_personer))
+        result = spec.func(df_olyckor, df_personer)
+        result.check_name = spec.name   # single source of truth for parent names
+        results.append(result)
     return results
 
 
@@ -364,7 +366,7 @@ def compute_quality_score(results: list[VerificationResult]) -> QualityScore:
     )
     if w_checks > 0:
         noun = "check" if w_checks == 1 else "checks"
-        parts.append(f"{w_checks} {noun} need attention")
+        parts.append(f"{w_checks} non-critical {noun} failed")
 
     if not parts:
         summary = "All checks passed. Dataset is publication-ready."
