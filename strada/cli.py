@@ -215,7 +215,7 @@ def classify(
         help="File name for the output CSV.",
     ),
 ):
-    """Classify micromobility types and add conflict-partner column (cycling analysis)."""
+    """Classify micromobility types and add Micromobility_type column (cycling analysis)."""
     from strada.io.readers import load_csv
     from strada.io.reporters import write_text_report
     from strada.core.classify import run_classification_pipeline
