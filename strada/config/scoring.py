@@ -27,16 +27,18 @@ from strada.io.reporters import VerificationResult
 
 # ── Severity mapping ──
 
+#  This is the single source of truth for severity — app.py derives its
+#  C/W display tags from this mapping.
 CHECK_SEVERITY: dict[str, str] = {
-    "G1": "critical",
-    "G2": "critical",
-    "G3": "non-critical",
-    "G4": "non-critical",
-    "G5": "non-critical",
-    "G6": "non-critical",
-    "C1": "non-critical",
-    "C2": "critical",
-    "C3": "non-critical",
+    "G1": "critical",       # crash-ID consistency between datasets
+    "G2": "critical",       # crash-type consistency
+    "G3": "critical",       # road-user category consistency
+    "G4": "non-critical",   # timeline consistency
+    "G5": "non-critical",   # location consistency
+    "G6": "non-critical",   # duplicate person detection
+    "C1": "critical",       # G1 (cykel singel) validation
+    "C2": "non-critical",   # cykel presence
+    "C3": "non-critical",   # cykel passengers only
 }
 
 # ── Weights ──

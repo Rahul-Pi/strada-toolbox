@@ -19,6 +19,12 @@ from pathlib import Path
 import streamlit as st
 import pandas as pd
 
+from strada.config.scoring import (
+    CHECK_SEVERITY,
+    QualityScore,
+    compute_quality_score,
+)
+
 # ─────────────────────────────────────────────────────────────────────────────
 #  Page config
 # ─────────────────────────────────────────────────────────────────────────────
@@ -85,17 +91,22 @@ BUNDLES: dict[str, dict] = {
     },
 }
 
-# (id, label, severity tag) — "C" = critical, "W" = warning
+# (id, label) — severity tag ("C" critical / "W" warning) is derived from
+# CHECK_SEVERITY in strada.config.scoring (single source of truth).
+_CHECK_LABELS: list[tuple[str, str]] = [
+    ("G1", "Crash-ID consistency"),
+    ("G2", "Crash-type consistency"),
+    ("G3", "Road-user category"),
+    ("G4", "Timeline consistency"),
+    ("G5", "Location consistency"),
+    ("G6", "Duplicate person"),
+    ("C1", "Cykel singel validation"),
+    ("C2", "Cykel presence"),
+    ("C3", "Cykel passengers only"),
+]
 CHECKS: list[tuple[str, str, str]] = [
-    ("G1", "Crash-ID consistency",      "C"),
-    ("G2", "Crash-type consistency",    "C"),
-    ("G3", "Road-user category",        "C"),
-    ("G4", "Timeline consistency",      "W"),
-    ("G5", "Location consistency",      "W"),
-    ("G6", "Duplicate person",          "W"),
-    ("C1", "Cykel singel validation",   "C"),
-    ("C2", "Cykel presence",            "W"),
-    ("C3", "Cykel passengers only",     "W"),
+    (cid, label, "C" if CHECK_SEVERITY.get(cid) == "critical" else "W")
+    for cid, label in _CHECK_LABELS
 ]
 
 
@@ -115,6 +126,117 @@ def _on_check_toggle() -> None:
             st.session_state.active_bundle = bid
             return
     st.session_state.active_bundle = "custom"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Quality-score banner
+# ─────────────────────────────────────────────────────────────────────────────
+
+_GRADE_PILL_COLORS: dict[str, tuple[str, str]] = {
+    # grade letter → (text color, background color)
+    "A": ("#0e5e2c", "#d4f4dd"),
+    "B": ("#8a5a00", "#fff3cd"),
+    "C": ("#a04500", "#ffe4cc"),
+    "D": ("#a02020", "#fcd5d5"),
+    "F": ("#7a1414", "#f7c1c1"),
+}
+
+
+def _score_color(score: int) -> str:
+    if score >= 90:
+        return "#1f8a45"   # green
+    if score >= 75:
+        return "#c89020"   # amber
+    if score >= 60:
+        return "#d97706"   # orange
+    if score >= 40:
+        return "#dc2626"   # red
+    return "#7c1c1c"       # dark red
+
+
+def _render_quality_banner(qs: QualityScore) -> None:
+    """Render the two-card overall-quality + per-category banner.
+
+    Uses ``st.html`` (not ``st.markdown``) so the indented inner HTML doesn't
+    get reinterpreted as Markdown code blocks. Right card uses Streamlit's
+    theme variables so it adapts to light/dark themes.
+    """
+    text_col, bg_col = _GRADE_PILL_COLORS.get(qs.grade, ("#444", "#eee"))
+
+    # Build category rows as a single inline string (no leading whitespace
+    # per line, so even if rendering ever falls back to a markdown processor
+    # we're safe).
+    row_parts: list[str] = []
+    for cat in qs.categories:
+        head = (
+            f'<div><span class="strada-cat-name">{cat.name}</span>'
+            f' <code class="strada-cat-sub">{cat.sub_label}</code></div>'
+        )
+        if cat.score is None:
+            row_parts.append(
+                '<div class="strada-cat-row">'
+                f'<div class="strada-cat-head">{head}'
+                '<div class="strada-cat-pct strada-cat-na">&mdash;</div>'
+                '</div>'
+                '<div class="strada-bar-bg"></div>'
+                '</div>'
+            )
+        else:
+            color = _score_color(cat.score)
+            row_parts.append(
+                '<div class="strada-cat-row">'
+                f'<div class="strada-cat-head">{head}'
+                f'<div class="strada-cat-pct" style="color:{color};">{cat.score}%</div>'
+                '</div>'
+                '<div class="strada-bar-bg">'
+                f'<div class="strada-bar-fill" style="width:{cat.score}%;background:{color};"></div>'
+                '</div>'
+                '</div>'
+            )
+    rows_html = "".join(row_parts)
+
+    # Each sentence on its own line in the summary
+    sentences = [s.strip() for s in qs.summary.split(". ") if s.strip()]
+    sentences = [s if s.endswith(".") else s + "." for s in sentences]
+    summary_html = "<br>".join(sentences) if sentences else qs.summary
+
+    st.html(
+        f"""
+<style>
+.strada-score-grid {{ display: grid; grid-template-columns: 1fr 2.3fr; gap: 16px; margin: 8px 0 24px 0; }}
+.strada-score-left {{ background: linear-gradient(135deg, #0a2540 0%, #0d2c4a 100%); color: #fff; border-radius: 12px; padding: 24px 28px; }}
+.strada-score-right {{ background: var(--secondary-background-color); border: 1px solid rgba(127, 127, 127, 0.2); border-radius: 12px; padding: 24px 28px; color: var(--text-color); }}
+.strada-score-label {{ font-size: 0.72em; color: #8ea4be; letter-spacing: 1.8px; font-weight: 700; }}
+.strada-score-num {{ margin: 10px 0 18px 0; line-height: 1; }}
+.strada-score-big {{ font-size: 4.6em; font-weight: 300; color: #fff; }}
+.strada-score-tot {{ font-size: 1.25em; color: #8ea4be; margin-left: 4px; }}
+.strada-grade-pill {{ display: inline-block; padding: 6px 14px; border-radius: 20px; font-size: 0.78em; font-weight: 700; letter-spacing: 0.5px; }}
+.strada-score-summary {{ margin-top: 18px; font-size: 0.92em; color: #cdd9e5; line-height: 1.5; }}
+.strada-score-breakhead {{ font-size: 1.05em; font-weight: 600; margin-bottom: 18px; color: var(--text-color); }}
+.strada-cat-row {{ margin-bottom: 16px; }}
+.strada-cat-row:last-child {{ margin-bottom: 0; }}
+.strada-cat-head {{ display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }}
+.strada-cat-name {{ font-weight: 600; color: var(--text-color); }}
+.strada-cat-sub {{ font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: rgba(127, 127, 127, 0.95); font-size: 0.82em; margin-left: 4px; background: rgba(127, 127, 127, 0.15); padding: 1px 6px; border-radius: 4px; }}
+.strada-cat-pct {{ font-weight: 700; font-size: 0.95em; }}
+.strada-cat-na {{ color: rgba(127, 127, 127, 0.7); }}
+.strada-bar-bg {{ background: rgba(127, 127, 127, 0.18); border-radius: 4px; height: 6px; overflow: hidden; }}
+.strada-bar-fill {{ height: 100%; border-radius: 4px; }}
+</style>
+<div class="strada-score-grid">
+<div class="strada-score-left">
+<div class="strada-score-label">OVERALL DATA QUALITY</div>
+<div class="strada-score-num"><span class="strada-score-big">{qs.overall}</span><span class="strada-score-tot">/ 100</span></div>
+<div><span class="strada-grade-pill" style="background:{bg_col};color:{text_col};">GRADE {qs.grade} &middot; {qs.grade_label}</span></div>
+<div class="strada-score-summary">{summary_html}</div>
+</div>
+<div class="strada-score-right">
+<div class="strada-score-breakhead">Score breakdown</div>
+{rows_html}
+</div>
+</div>
+"""
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -328,6 +450,10 @@ with tab_verify:
 
             # ── Summary table ─────────────────────────────────────────────
             st.subheader("Results")
+
+            # ── Quality-score banner ──────────────────────────────────────
+            quality = compute_quality_score(results)
+            _render_quality_banner(quality)
 
             summary_rows = []
             for r in results:
