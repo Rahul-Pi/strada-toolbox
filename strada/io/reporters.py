@@ -32,7 +32,7 @@ class VerificationResult:
     check_name : str
         Human-readable title.
     status : str
-        ``"pass"``, ``"warning"`` or ``"fail"``.
+        ``"pass"``, ``"warning"`` or ``"critical"``.
     summary : str
         One-line summary message shown in the text report.
     issue_count : int
@@ -45,7 +45,7 @@ class VerificationResult:
 
     check_id: str
     check_name: str
-    status: str  # "pass" | "warning" | "fail"
+    status: str  # "pass" | "warning" | "critical"
     summary: str
     issue_count: int = 0
     details: Optional[pd.DataFrame] = None
@@ -104,10 +104,10 @@ def write_text_report(
         fh.write(f"{'Check':<8} {'Status':<10} {'Issues':>8}  {'Description'}\n")
         fh.write("-" * 80 + "\n")
         for r in results:
-            icon = {"pass": "✓", "warning": "⚠", "fail": "✗"}.get(r.status, "?")
+            icon = {"pass": "✓", "warning": "⚠", "critical": "✗"}.get(r.status, "?")
             fh.write(f"{r.check_id:<8} {icon} {r.status:<8} {r.issue_count:>8}  {r.check_name}\n")
             for sub in r.sub_results:
-                icon_s = {"pass": "✓", "warning": "⚠", "fail": "✗"}.get(sub.status, "?")
+                icon_s = {"pass": "✓", "warning": "⚠", "critical": "✗"}.get(sub.status, "?")
                 fh.write(f"  {sub.check_id:<6} {icon_s} {sub.status:<8} {sub.issue_count:>8}  {sub.check_name}\n")
         fh.write("-" * 80 + "\n\n")
 

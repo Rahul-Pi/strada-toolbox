@@ -44,12 +44,28 @@ from strada.config.constants import (
     COL_ROLE_P,
     COL_ROLE_S,
     CYKEL_CATEGORY,
-    G1_CRASH_TYPE,
+    CYKEL_SINGEL_TYPE,
     GENDER_UNKNOWN,
     PASSENGER_ROLES,
     DUPLICATE_DETECTION_COLS,
 )
 from strada.io.reporters import VerificationResult
+
+
+def _status_for(check_id: str, issue_count: int) -> str:
+    """Map (check_id, issue_count) to a display status.
+
+    Returns ``"pass"`` when the check found no issues, otherwise ``"critical"``
+    if the check is critical-severity (per ``CHECK_SEVERITY``) and ``"warning"``
+    if non-critical. Sub-check IDs like ``"G2.1"`` inherit severity from their
+    parent (``"G2"``).
+    """
+    if issue_count == 0:
+        return "pass"
+    parent_id = check_id.split(".", 1)[0]
+    if CHECK_SEVERITY.get(parent_id) == "critical":
+        return "critical"
+    return "warning"
 
 
 # ╔═══════════════════════════════════════════════════════════════════════════╗
@@ -86,18 +102,16 @@ def check_g1_id_consistency(
             f"✓ All Olycksnummer match perfectly. "
             f"Total unique crashes: {len(olyckor_ids):,}"
         )
-        status = "pass"
     else:
         summary = (
             f"⚠ {len(olyckor_only)} in Olyckor only, "
             f"{len(personer_only)} in Personer only"
         )
-        status = "warning"
 
     return VerificationResult(
         check_id="G1",
         check_name="Crash-ID (Olycksnummer) consistency",
-        status=status,
+        status=_status_for("G1", n_issues),
         summary=summary,
         issue_count=n_issues,
         details=details,
@@ -142,7 +156,7 @@ def check_g2_crash_type(
     sub_results.append(VerificationResult(
         check_id="G2.1",
         check_name="Missing Olyckstyp",
-        status="pass" if n_missing == 0 else "warning",
+        status=_status_for("G2.1", n_missing),
         summary=sub1_summary,
         issue_count=n_missing,
         details=pd.DataFrame(rows_missing) if rows_missing else None,
@@ -175,7 +189,7 @@ def check_g2_crash_type(
     sub_results.append(VerificationResult(
         check_id="G2.2",
         check_name="Olyckstyp mismatch between datasets",
-        status="pass" if len(mismatched) == 0 else "warning",
+        status=_status_for("G2.2", len(mismatched)),
         summary=sub2_summary,
         issue_count=len(mismatched),
         details=mismatched[[COL_CRASH_ID, "Olyckstyp_Olyckor", "Olyckstyp_Personer"]] if len(mismatched) > 0 else None,
@@ -186,7 +200,7 @@ def check_g2_crash_type(
     return VerificationResult(
         check_id="G2",
         check_name="Crash-type (Olyckstyp) consistency",
-        status="pass" if total_issues == 0 else "warning",
+        status=_status_for("G2", total_issues),
         summary=f"{total_issues} total issues across sub-checks",
         issue_count=total_issues,
         sub_results=sub_results,
@@ -220,7 +234,7 @@ def check_g3_road_user_category(
     sub_results.append(VerificationResult(
         check_id="G3.1",
         check_name="All three Trafikantkategori columns missing",
-        status="pass" if n31 == 0 else "warning",
+        status=_status_for("G3.1", n31),
         summary=f"{'✓ All persons have at least one Trafikantkategori column filled' if n31 == 0 else f'⚠ {n31} persons with all three columns missing'}",
         issue_count=n31,
         details=details31,
@@ -237,7 +251,7 @@ def check_g3_road_user_category(
     sub_results.append(VerificationResult(
         check_id="G3.2",
         check_name="P and S categories mismatch when both filled",
-        status="pass" if n32 == 0 else "warning",
+        status=_status_for("G3.2", n32),
         summary=(
             f"✓ All {len(both_filled)} persons with both P and S filled have matching values"
             if n32 == 0
@@ -278,7 +292,7 @@ def check_g3_road_user_category(
     sub_results.append(VerificationResult(
         check_id="G3.3",
         check_name="Filled P/S ≠ Sammanvägd",
-        status="pass" if n33 == 0 else "warning",
+        status=_status_for("G3.3", n33),
         summary=(
             "✓ All filled P/S categories match Sammanvägd"
             if n33 == 0
@@ -309,7 +323,7 @@ def check_g3_road_user_category(
     sub_results.append(VerificationResult(
         check_id="G3.4",
         check_name="Neither P nor S matches Sammanvägd (both filled)",
-        status="pass" if n34 == 0 else "warning",
+        status=_status_for("G3.4", n34),
         summary=(
             "✓ At least one of P/S matches Sammanvägd in all cases"
             if n34 == 0
@@ -323,7 +337,7 @@ def check_g3_road_user_category(
     return VerificationResult(
         check_id="G3",
         check_name="Road-user category (Trafikantkategori) consistency",
-        status="pass" if total == 0 else "warning",
+        status=_status_for("G3", total),
         summary=f"{total} total issues across sub-checks",
         issue_count=total,
         sub_results=sub_results,
@@ -403,7 +417,7 @@ def check_g4_timeline(
     return VerificationResult(
         check_id="G4",
         check_name="Crash timeline consistency",
-        status="pass" if n == 0 else "warning",
+        status=_status_for("G4", n),
         summary=summary,
         issue_count=n,
         details=details,
@@ -451,7 +465,7 @@ def check_g5_location(
     return VerificationResult(
         check_id="G5",
         check_name="Location consistency (Län / Kommun)",
-        status="pass" if n == 0 else "warning",
+        status=_status_for("G5", n),
         summary=(
             "✓ All crashes have consistent location"
             if n == 0
@@ -478,10 +492,11 @@ def check_g6_duplicate_persons(
     # Check that all columns exist
     missing_cols = [c for c in dup_cols if c not in df_personer.columns]
     if missing_cols:
+        # Check could not run — escalate to critical so it can't be ignored.
         return VerificationResult(
             check_id="G6",
             check_name="Duplicate person detection",
-            status="fail",
+            status="critical",
             summary=f"✗ Missing columns: {missing_cols}",
             issue_count=0,
         )
@@ -527,7 +542,7 @@ def check_g6_duplicate_persons(
     return VerificationResult(
         check_id="G6",
         check_name="Duplicate person detection (all road-user types)",
-        status="pass" if n == 0 else "warning",
+        status=_status_for("G6", n),
         summary=(
             "✓ No potential duplicate persons found"
             if n == 0
@@ -543,31 +558,34 @@ def check_g6_duplicate_persons(
 # ╚═══════════════════════════════════════════════════════════════════════════╝
 
 
-def check_c1_g1_single_cyclist(
+def check_c1_cykel_singel(
     df_olyckor: pd.DataFrame,
     df_personer: pd.DataFrame,
 ) -> VerificationResult:
-    """**C1 — G1 (cykel singel) crash validation**.
+    """**C1 — Cykel singel crash validation**.
 
-    For crashes typed ``G1 (cykel singel)``:
+    For crashes whose STRADA Olyckstyp is ``"G1 (cykel singel)"`` — the
+    crash-type code for single-cyclist crashes; *not* related to our check
+    ``G1``:
+
       - There should be exactly one person entry.
       - That entry should have ``Huvudgrupp == 'Cykel'``.
 
     When multiple persons exist, passengers are counted via the keyword
     ``Passagerare`` in the role columns.
     """
-    g1_ids = df_olyckor.loc[
-        df_olyckor[COL_CRASH_TYPE] == G1_CRASH_TYPE, COL_CRASH_ID
+    singel_ids = df_olyckor.loc[
+        df_olyckor[COL_CRASH_TYPE] == CYKEL_SINGEL_TYPE, COL_CRASH_ID
     ].unique()
-    g1_persons = df_personer[df_personer[COL_CRASH_ID].isin(g1_ids)]
-    person_counts = g1_persons.groupby(COL_CRASH_ID).size()
+    singel_persons = df_personer[df_personer[COL_CRASH_ID].isin(singel_ids)]
+    person_counts = singel_persons.groupby(COL_CRASH_ID).size()
 
     rows = []
 
-    # Multi-person G1 crashes
+    # Multi-person cykel singel crashes
     multi_ids = person_counts[person_counts > 1].index
     for cid in multi_ids:
-        grp = g1_persons[g1_persons[COL_CRASH_ID] == cid]
+        grp = singel_persons[singel_persons[COL_CRASH_ID] == cid]
         n_persons = len(grp)
         # Count passengers
         p_roles = grp[COL_ROLE_P].fillna("").str.lower()
@@ -583,7 +601,7 @@ def check_c1_g1_single_cyclist(
 
     # Single-person but not Cykel
     single_ids = person_counts[person_counts == 1].index
-    single = g1_persons[g1_persons[COL_CRASH_ID].isin(single_ids)]
+    single = singel_persons[singel_persons[COL_CRASH_ID].isin(single_ids)]
     not_cykel = single[single[COL_CATEGORY_MAIN] != CYKEL_CATEGORY]
     for _, r in not_cykel.iterrows():
         rows.append({
@@ -596,12 +614,12 @@ def check_c1_g1_single_cyclist(
 
     return VerificationResult(
         check_id="C1",
-        check_name="G1 (cykel singel) crash validation",
-        status="pass" if n == 0 else "warning",
+        check_name="Cykel singel crash validation",
+        status=_status_for("C1", n),
         summary=(
-            f"✓ All {len(g1_ids)} G1 crashes have exactly one Cykel entry"
+            f"✓ All {len(singel_ids)} cykel singel crashes have exactly one Cykel entry"
             if n == 0
-            else f"⚠ {n} G1 crashes with issues"
+            else f"⚠ {n} cykel singel crashes with issues"
         ),
         issue_count=n,
         details=details,
@@ -637,7 +655,7 @@ def check_c2_cykel_presence(
     return VerificationResult(
         check_id="C2",
         check_name="Cykel presence in every crash",
-        status="pass" if n == 0 else "warning",
+        status=_status_for("C2", n),
         summary=(
             f"✓ All {len(has_cykel)} crashes have at least one Cykel entry"
             if n == 0
@@ -689,7 +707,7 @@ def check_c3_cykel_passengers_only(
     return VerificationResult(
         check_id="C3",
         check_name="Cykel crashes with only passengers (no driver)",
-        status="pass" if n == 0 else "warning",
+        status=_status_for("C3", n),
         summary=(
             f"✓ All Cykel crashes have at least one driver/cyclist"
             if n == 0
@@ -715,7 +733,7 @@ GENERIC_CHECKS = [
 ]
 
 CYCLING_CHECKS = [
-    check_c1_g1_single_cyclist,
+    check_c1_cykel_singel,
     check_c2_cykel_presence,
     check_c3_cykel_passengers_only,
 ]
@@ -787,7 +805,7 @@ CHECK_SEVERITY: dict[str, str] = {
     "G4": "non-critical",   # timeline consistency
     "G5": "non-critical",   # location consistency
     "G6": "non-critical",   # duplicate person detection
-    "C1": "critical",       # G1 (cykel singel) validation
+    "C1": "critical",       # cykel singel (STRADA Olyckstyp G1) validation
     "C2": "non-critical",   # cykel presence
     "C3": "non-critical",   # cykel passengers only
 }

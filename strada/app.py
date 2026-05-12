@@ -387,7 +387,7 @@ with tab_verify:
 
             summary_rows = []
             for r in results:
-                icon = {"pass": "✓", "warning": "⚠", "fail": "✗"}.get(r.status, "?")
+                icon = {"pass": "✓", "warning": "⚠", "critical": "✗"}.get(r.status, "?")
                 summary_rows.append({
                     "Check": r.check_id,
                     "Status": f"{icon} {r.status}",
@@ -395,7 +395,7 @@ with tab_verify:
                     "Description": r.check_name,
                 })
                 for sub in r.sub_results:
-                    sub_icon = {"pass": "✓", "warning": "⚠", "fail": "✗"}.get(sub.status, "?")
+                    sub_icon = {"pass": "✓", "warning": "⚠", "critical": "✗"}.get(sub.status, "?")
                     summary_rows.append({
                         "Check": f"  {sub.check_id}",
                         "Status": f"{sub_icon} {sub.status}",
@@ -618,7 +618,7 @@ with tab_about:
         ("G6", "Duplicate person detection",                "warn"),
     ]
     _cycling_check_refs = [
-        ("C1", "G1 (cykel singel) crash validation",        "critical"),
+        ("C1", "Cykel singel crash validation",              "critical"),
         ("C2", "Cykel presence in every crash",             "warn"),
         ("C3", "Cykel crashes with only passengers",        "warn"),
     ]

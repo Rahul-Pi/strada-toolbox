@@ -321,9 +321,10 @@ If the same combination of all these values appears in multiple different crash 
 
 These checks are relevant when the dataset has been filtered to cycling / micromobility crashes. Enable them with `--cycling`.
 
-#### C1 — G1 (cykel singel) Crash Validation
+#### C1 — Cykel Singel Crash Validation
 
-For crashes typed `G1 (cykel singel)`:
+For crashes whose STRADA *Olyckstyp* code is `G1 (cykel singel)` — the
+single-cyclist crash-type, unrelated to our check ID `G1`:
 - There should be exactly **one** person entry.
 - That entry should have `Sammanvägd Trafikantkategori - Huvudgrupp == "Cykel"`.
 - When multiple persons exist, the count of passengers (identified by `"Passagerare"` in role columns) is reported.
@@ -493,12 +494,14 @@ def check_g7_my_new_check(df_olyckor, df_personer) -> VerificationResult:
     return VerificationResult(
         check_id="G7",
         check_name="My new check",
-        status="pass" if no_issues else "warning",
+        status=_status_for("G7", n),   # pass / warning / critical (uses CHECK_SEVERITY)
         summary="...",
         issue_count=n,
         details=df_details,
     )
 ```
+
+Don't forget to add an entry for `"G7"` in `CHECK_SEVERITY` so the helper knows whether to grade it as critical or warning.
 
 2. Add it to the `GENERIC_CHECKS` or `CYCLING_CHECKS` list at the bottom of the file.
 3. The CLI and web dashboard will automatically pick it up.

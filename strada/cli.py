@@ -162,10 +162,10 @@ def verify(
     summary.add_column("Description")
 
     for r in results:
-        icon = {"pass": "[green]✓[/green]", "warning": "[yellow]⚠[/yellow]", "fail": "[red]✗[/red]"}.get(r.status, "?")
+        icon = {"pass": "[green]✓[/green]", "warning": "[yellow]⚠[/yellow]", "critical": "[red]✗[/red]"}.get(r.status, "?")
         summary.add_row(r.check_id, icon, str(r.issue_count), r.check_name)
         for sub in r.sub_results:
-            sub_icon = {"pass": "[green]✓[/green]", "warning": "[yellow]⚠[/yellow]", "fail": "[red]✗[/red]"}.get(sub.status, "?")
+            sub_icon = {"pass": "[green]✓[/green]", "warning": "[yellow]⚠[/yellow]", "critical": "[red]✗[/red]"}.get(sub.status, "?")
             summary.add_row(f"  {sub.check_id}", sub_icon, str(sub.issue_count), sub.check_name)
 
     console.print(summary)

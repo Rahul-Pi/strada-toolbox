@@ -60,7 +60,7 @@ COL_INJURY_SEVERITY = "Sammanvägd skadegrad"
 # ═══════════════════════════════════════════════════════════════════════════════
 
 CYKEL_CATEGORY = "Cykel"
-G1_CRASH_TYPE = "G1 (cykel singel)"
+CYKEL_SINGEL_TYPE = "G1 (cykel singel)"
 GENDER_UNKNOWN = "Uppgift saknas"
 
 PASSENGER_ROLES = [
