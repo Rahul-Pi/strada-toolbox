@@ -3,65 +3,69 @@ Configuration constants for the STRADA Toolbox.
 
 All column names, keywords, and magic strings used across the toolbox are
 centralised here so that upstream schema changes need only one edit.
+
+Organised into three sections:
+  1. Schema columns       — exact column names used in the CSV exports
+  2. Domain constants     — sentinel values, role lists, encoding, etc.
+  3. Micromobility config — keyword dictionaries used by classify.py
 """
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# Column names — Olyckor & Personer shared
-# ═══════════════════════════════════════════════════════════════════════════════
 
-COL_CRASH_ID = "Olycksnummer"
+# ╔═══════════════════════════════════════════════════════════════════════════╗
+# ║  1. SCHEMA COLUMNS                                                        ║
+# ║     Exact column names from STRADA CSV exports.                           ║
+# ╚═══════════════════════════════════════════════════════════════════════════╝
+
+# ── Shared between Olyckor and Personer ──
+
+COL_CRASH_ID   = "Olycksnummer"
 COL_CRASH_TYPE = "Olyckstyp"
-COL_YEAR = "År"
-COL_MONTH = "Månad"
-COL_DAY = "Dag"
-COL_TIME = "Klockslag grupp (timme)"
-COL_REFERENCE = "Referens"
+COL_YEAR       = "År"
+COL_MONTH      = "Månad"
+COL_DAY        = "Dag"
+COL_TIME       = "Klockslag grupp (timme)"
+COL_REFERENCE  = "Referens"
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# Column names — Personer only
-# ═══════════════════════════════════════════════════════════════════════════════
+# ── Personer only — demographics & location ──
 
-COL_AGE = "Ålder"
-COL_GENDER = "Kön"
-COL_COUNTY = "Län"
+COL_AGE          = "Ålder"
+COL_GENDER       = "Kön"
+COL_COUNTY       = "Län"
 COL_MUNICIPALITY = "Kommun"
-COL_STREET = "Olycksväg/-gata"
+COL_STREET       = "Olycksväg/-gata"
 
-# Road-user category columns
+# ── Personer only — road-user category ──
+
 COL_CATEGORY_MAIN = "Sammanvägd Trafikantkategori - Huvudgrupp"
-COL_CATEGORY_SUB = "Sammanvägd Trafikantkategori - Undergrupp"
-COL_CATEGORY_P = "Trafikantkategori (P) - Undergrupp"
-COL_CATEGORY_S = "Trafikantkategori (S) - Undergrupp"
+COL_CATEGORY_SUB  = "Sammanvägd Trafikantkategori - Undergrupp"
+COL_CATEGORY_P    = "Trafikantkategori (P) - Undergrupp"
+COL_CATEGORY_S    = "Trafikantkategori (S) - Undergrupp"
 
-# Role columns
-COL_ROLE_P = "Trafikantroll (P)"
-COL_ROLE_S = "Trafikantroll (S)"
+# ── Personer only — roles & free-text narratives ──
 
-# Event description columns (free-text narratives)
-COL_EVENT_P = "Händelseförlopp (P)"
-COL_EVENT_S = "Händelseförlopp (S)"
+COL_ROLE_P   = "Trafikantroll (P)"
+COL_ROLE_S   = "Trafikantroll (S)"
+COL_EVENT_P  = "Händelseförlopp (P)"
+COL_EVENT_S  = "Händelseförlopp (S)"
 
-# Police-specific columns
-COL_TE_NR_P = "Trafikelement Nr (P)"
+# ── Personer only — reporting source & injury ──
 
-# Hospital-specific columns
-COL_KONFLIKT_UG = "I Konflikt med - Undergrupp"
-
-# Report columns
-COL_POLICE_REPORT = "Polisrapport"
+COL_TE_NR_P         = "Trafikelement Nr (P)"           # police-specific
+COL_KONFLIKT_UG     = "I Konflikt med - Undergrupp"    # hospital-specific
+COL_POLICE_REPORT   = "Polisrapport"
 COL_HOSPITAL_REPORT = "Sjukvårdsrapport"
-
-# Injury columns
-COL_MAIS = "MAIS"
+COL_MAIS            = "MAIS"
 COL_INJURY_SEVERITY = "Sammanvägd skadegrad"
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# Sentinel values
-# ═══════════════════════════════════════════════════════════════════════════════
 
-CYKEL_CATEGORY = "Cykel"
+# ╔═══════════════════════════════════════════════════════════════════════════╗
+# ║  2. DOMAIN CONSTANTS                                                      ║
+# ║     Sentinel values, role lists, and the duplicate-detection column set.  ║
+# ╚═══════════════════════════════════════════════════════════════════════════╝
+
+CYKEL_CATEGORY    = "Cykel"
 CYKEL_SINGEL_TYPE = "G1 (cykel singel)"
-GENDER_UNKNOWN = "Uppgift saknas"
+GENDER_UNKNOWN    = "Uppgift saknas"
 
 PASSENGER_ROLES = [
     "Passsagerare övrig/okänd plats",   # NB: triple 's' is in the original data
@@ -69,10 +73,7 @@ PASSENGER_ROLES = [
     "Passagerare fram",
 ]
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# Duplicate-person detection columns
-# ═══════════════════════════════════════════════════════════════════════════════
-
+# Columns compared when looking for duplicate persons across crashes (G6).
 DUPLICATE_DETECTION_COLS = [
     COL_AGE,
     COL_YEAR,
@@ -86,9 +87,14 @@ DUPLICATE_DETECTION_COLS = [
     COL_CATEGORY_MAIN,
 ]
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# Micromobility classification keywords  (cycling-specific)
-# ═══════════════════════════════════════════════════════════════════════════════
+# Default encoding for STRADA CSV reads & writes.
+CSV_ENCODING = "utf-8-sig"
+
+
+# ╔═══════════════════════════════════════════════════════════════════════════╗
+# ║  3. MICROMOBILITY CLASSIFICATION                                          ║
+# ║     Keyword dictionaries and lookup tables for strada.core.classify.      ║
+# ╚═══════════════════════════════════════════════════════════════════════════╝
 
 MICROMOBILITY_KEYWORDS: dict[str, list[str]] = {
     "E-scooter": [
@@ -108,7 +114,7 @@ MICROMOBILITY_KEYWORDS: dict[str, list[str]] = {
         "scotter", "elscotter", "el-scotter",
         "elscoter", "el-scotty", "sparkcykel",
         "voi", "voien", "VOJ", "lime", "bird", "tier", "ryde",
-        "spark", "Eldrivet enpersonsfordon", "elsparcyklar", "El-kick", 
+        "spark", "Eldrivet enpersonsfordon", "elsparcyklar", "El-kick",
         "eldrivet enpersonfordon", "Eldrivna enpersonsfordonet",
         "elsccoter",
     ],
@@ -136,10 +142,13 @@ MICROMOBILITY_KEYWORDS: dict[str, list[str]] = {
     ],
 }
 
+# Keywords that should only match as whole words (e.g. brand names that are
+# also common substrings).
 WHOLE_WORD_KEYWORDS: set[str] = {
     "voi", "voien", "voj", "lime", "bird", "tier", "ryde", "spark",
 }
 
+# Order in which categories are resolved when an entry matches multiple.
 MICROMOBILITY_PRIORITY: list[str] = [
     "E-scooter",
     "E-bike",
@@ -148,6 +157,7 @@ MICROMOBILITY_PRIORITY: list[str] = [
     "Conventional bicycle",
 ]
 
+# Undergrupp values that already encode an electric/specific type.
 ELECTRIC_UNDERGRUPP: set[str] = {
     "Elcykel",
     "Eldrivet enpersonsfordon",
@@ -155,7 +165,7 @@ ELECTRIC_UNDERGRUPP: set[str] = {
     "Eldriven rullstol",
 }
 
-# Undergrupp → Micromobility_type mapping (used in Step 3 fallback)
+# Undergrupp → Micromobility_type mapping (Step 3 fallback in classify.py).
 UNDERGRUPP_MAP: dict[str, str] = {
     "Elcykel": "E-bike",
     "Eldrivet enpersonsfordon": "E-scooter",
@@ -168,23 +178,17 @@ UNDERGRUPP_MAP: dict[str, str] = {
     "Cykel": "Conventional bicycle",
 }
 
-# "I Konflikt med - Undergrupp" values indicating the CONFLICT PARTNER is
-# a specific micromobility type (used in Step 2 Guard B, hospital-only)
+# "I Konflikt med - Undergrupp" values indicating the CONFLICT PARTNER is a
+# specific micromobility type (hospital-only Guard B, Step 2 in classify.py).
 CONFLICT_PARTNER_EXCLUSIONS: dict[str, set[str]] = {
     "E-scooter": {"Eldrivet enpersonsfordon", "Sparkcykelåkare"},
     "E-bike": {"Elcykel"},
     "rullstol/permobil": {"Eldriven rullstol", "Rullstolsburen"},
 }
 
-# Undergrupp (P) values that indicate a specific electric type (Step 1 Guard C)
+# Undergrupp (P) values that indicate a specific electric type (Step 1 Guard C).
 SPECIFIC_UNDERGRUPP_P: set[str] = {
     "Eldrivet enpersonsfordon",
     "Elcykel",
     "Eldriven rullstol",
 }
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Default encoding used for STRADA CSV exports
-# ═══════════════════════════════════════════════════════════════════════════════
-
-CSV_ENCODING = "utf-8-sig"

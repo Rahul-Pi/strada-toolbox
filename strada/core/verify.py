@@ -1,742 +1,193 @@
 """
-Data-quality verification checks for STRADA datasets.
+STRADA verification — registry, runner, and quality scoring.
 
-This module provides **generic** checks (G1–G6) that apply to any STRADA
-analysis, and **cycling-specific** checks (C1–C3) that are relevant only when
-the dataset is filtered to cycling / micromobility crashes.
+This module is the public API for data-quality verification. It exposes:
 
-Every public ``check_*`` function follows the same contract:
+  - ``CHECK_SPECS``         — registry of all checks (single source of truth)
+  - ``CHECK_SEVERITY``      — derived ``{check_id: severity}`` lookup
+  - ``SCORE_CATEGORIES``    — derived ``{category_name: {checks, sub_label}}``
+  - ``run_checks(...)``     — execute a selection of checks
+  - ``compute_quality_score(results)`` — compute overall 0–100 score
+  - ``QualityScore``, ``CategoryScore`` dataclasses
 
-    Parameters
-    ----------
-    df_olyckor : pd.DataFrame   (crashes table — may be ``None`` for some checks)
-    df_personer : pd.DataFrame  (persons table)
-
-    Returns
-    -------
-    VerificationResult
+The check functions themselves live in :mod:`strada.core.checks` — to add a
+new check, define the function there and add a :class:`CheckSpec` entry to
+``CHECK_SPECS`` below. Everything downstream (severity lookup, generic-vs-
+cycling grouping, score category grouping, app-side checkbox labels, About-tab
+references) derives from this one list.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Callable, Literal, Optional
 
 import pandas as pd
-import numpy as np
 
-from strada.config.constants import (
-    COL_CRASH_ID,
-    COL_CRASH_TYPE,
-    COL_YEAR,
-    COL_MONTH,
-    COL_DAY,
-    COL_TIME,
-    COL_AGE,
-    COL_GENDER,
-    COL_COUNTY,
-    COL_MUNICIPALITY,
-    COL_STREET,
-    COL_CATEGORY_MAIN,
-    COL_CATEGORY_SUB,
-    COL_CATEGORY_P,
-    COL_CATEGORY_S,
-    COL_ROLE_P,
-    COL_ROLE_S,
-    CYKEL_CATEGORY,
-    CYKEL_SINGEL_TYPE,
-    GENDER_UNKNOWN,
-    PASSENGER_ROLES,
-    DUPLICATE_DETECTION_COLS,
-)
-from strada.io.reporters import VerificationResult
-
-
-def _status_for(check_id: str, issue_count: int) -> str:
-    """Map (check_id, issue_count) to a display status.
-
-    Returns ``"pass"`` when the check found no issues, otherwise ``"critical"``
-    if the check is critical-severity (per ``CHECK_SEVERITY``) and ``"warning"``
-    if non-critical. Sub-check IDs like ``"G2.1"`` inherit severity from their
-    parent (``"G2"``).
-    """
-    if issue_count == 0:
-        return "pass"
-    parent_id = check_id.split(".", 1)[0]
-    if CHECK_SEVERITY.get(parent_id) == "critical":
-        return "critical"
-    return "warning"
-
-
-# ╔═══════════════════════════════════════════════════════════════════════════╗
-# ║  GENERIC CHECKS  (G1 – G6)                                             ║
-# ╚═══════════════════════════════════════════════════════════════════════════╝
-
-
-def check_g1_id_consistency(
-    df_olyckor: pd.DataFrame,
-    df_personer: pd.DataFrame,
-) -> VerificationResult:
-    """**G1 — Crash-ID consistency** between Olyckor and Personer.
-
-    Verifies that every ``Olycksnummer`` in Olyckor has at least one
-    corresponding row in Personer and vice-versa.
-    """
-    olyckor_ids = set(df_olyckor[COL_CRASH_ID].unique())
-    personer_ids = set(df_personer[COL_CRASH_ID].unique())
-
-    olyckor_only = sorted(olyckor_ids - personer_ids)
-    personer_only = sorted(personer_ids - olyckor_ids)
-
-    rows = []
-    for cid in olyckor_only:
-        rows.append({"Olycksnummer": cid, "Found_in": "Olyckor only"})
-    for cid in personer_only:
-        rows.append({"Olycksnummer": cid, "Found_in": "Personer only"})
-
-    details = pd.DataFrame(rows) if rows else None
-    n_issues = len(rows)
-
-    if n_issues == 0:
-        summary = (
-            f"✓ All Olycksnummer match perfectly. "
-            f"Total unique crashes: {len(olyckor_ids):,}"
-        )
-    else:
-        summary = (
-            f"⚠ {len(olyckor_only)} in Olyckor only, "
-            f"{len(personer_only)} in Personer only"
-        )
-
-    return VerificationResult(
-        check_id="G1",
-        check_name="Crash-ID (Olycksnummer) consistency",
-        status=_status_for("G1", n_issues),
-        summary=summary,
-        issue_count=n_issues,
-        details=details,
-    )
-
-
-def check_g2_crash_type(
-    df_olyckor: pd.DataFrame,
-    df_personer: pd.DataFrame,
-) -> VerificationResult:
-    """**G2 — Crash-type (Olyckstyp) consistency**.
-
-    Three sub-checks:
-      * G2.1  Missing Olyckstyp in either dataset.
-      * G2.2  Olyckstyp mismatch between Olyckor and Personer for the same
-              crash ID.
-    """
-    sub_results = []
-
-    # --- G2.1 — missing values ---
-    def _is_empty(s):
-        return s.isna() | (s.astype(str).str.strip() == "")
-
-    missing_o = df_olyckor[_is_empty(df_olyckor[COL_CRASH_TYPE])]
-    missing_p = df_personer[_is_empty(df_personer[COL_CRASH_TYPE])]
-    missing_p_crashes = missing_p[COL_CRASH_ID].unique()
-
-    n_missing = len(missing_o) + len(missing_p_crashes)
-    if n_missing == 0:
-        sub1_summary = "✓ All records have Olyckstyp filled"
-    else:
-        sub1_summary = (
-            f"⚠ Missing in Olyckor: {len(missing_o)}, "
-            f"Missing in Personer (unique crashes): {len(missing_p_crashes)}"
-        )
-    rows_missing = []
-    for cid in missing_o[COL_CRASH_ID].values:
-        rows_missing.append({"Olycksnummer": cid, "Source": "Olyckor"})
-    for cid in missing_p_crashes:
-        rows_missing.append({"Olycksnummer": cid, "Source": "Personer"})
-
-    sub_results.append(VerificationResult(
-        check_id="G2.1",
-        check_name="Missing Olyckstyp",
-        status=_status_for("G2.1", n_missing),
-        summary=sub1_summary,
-        issue_count=n_missing,
-        details=pd.DataFrame(rows_missing) if rows_missing else None,
-    ))
-
-    # --- G2.2 — mismatch between datasets ---
-    # Take one Olyckstyp per crash from Personer (they should all agree)
-    personer_types = (
-        df_personer[[COL_CRASH_ID, COL_CRASH_TYPE]]
-        .drop_duplicates(COL_CRASH_ID)
-    )
-    merged = df_olyckor[[COL_CRASH_ID, COL_CRASH_TYPE]].merge(
-        personer_types,
-        on=COL_CRASH_ID,
-        suffixes=("_olyckor", "_personer"),
-    )
-    col_o = f"{COL_CRASH_TYPE}_olyckor"
-    col_p = f"{COL_CRASH_TYPE}_personer"
-    mismatched = merged[merged[col_o] != merged[col_p]].copy()
-    mismatched = mismatched.rename(columns={
-        col_o: "Olyckstyp_Olyckor",
-        col_p: "Olyckstyp_Personer",
-    })
-
-    if len(mismatched) == 0:
-        sub2_summary = "✓ All Olyckstyp values match between datasets"
-    else:
-        sub2_summary = f"⚠ {len(mismatched)} crashes with mismatched Olyckstyp"
-
-    sub_results.append(VerificationResult(
-        check_id="G2.2",
-        check_name="Olyckstyp mismatch between datasets",
-        status=_status_for("G2.2", len(mismatched)),
-        summary=sub2_summary,
-        issue_count=len(mismatched),
-        details=mismatched[[COL_CRASH_ID, "Olyckstyp_Olyckor", "Olyckstyp_Personer"]] if len(mismatched) > 0 else None,
-    ))
-
-    # --- aggregate ---
-    total_issues = sum(s.issue_count for s in sub_results)
-    return VerificationResult(
-        check_id="G2",
-        check_name="Crash-type (Olyckstyp) consistency",
-        status=_status_for("G2", total_issues),
-        summary=f"{total_issues} total issues across sub-checks",
-        issue_count=total_issues,
-        sub_results=sub_results,
-    )
-
-
-def check_g3_road_user_category(
-    df_olyckor: pd.DataFrame | None,
-    df_personer: pd.DataFrame,
-) -> VerificationResult:
-    """**G3 — Road-user category (Trafikantkategori) consistency** in Personer.
-
-    Sub-checks:
-      * G3.1  All three category columns missing.
-      * G3.2  P ≠ S when both filled.
-      * G3.3  Filled P/S ≠ Sammanvägd.
-      * G3.4  Neither P nor S matches Sammanvägd when both filled.
-    """
-    sub_results = []
-    col_p = COL_CATEGORY_P
-    col_s = COL_CATEGORY_S
-    col_sam = COL_CATEGORY_SUB
-
-    def _empty(series):
-        return series.isna() | (series.astype(str).str.strip() == "")
-
-    # --- G3.1 — all three missing ---
-    all_missing = df_personer[_empty(df_personer[col_p]) & _empty(df_personer[col_s]) & _empty(df_personer[col_sam])]
-    n31 = len(all_missing)
-    details31 = all_missing[[COL_CRASH_ID]].drop_duplicates() if n31 > 0 else None
-    sub_results.append(VerificationResult(
-        check_id="G3.1",
-        check_name="All three Trafikantkategori columns missing",
-        status=_status_for("G3.1", n31),
-        summary=f"{'✓ All persons have at least one Trafikantkategori column filled' if n31 == 0 else f'⚠ {n31} persons with all three columns missing'}",
-        issue_count=n31,
-        details=details31,
-    ))
-
-    # --- G3.2 — P ≠ S when both filled ---
-    both_filled = df_personer[~_empty(df_personer[col_p]) & ~_empty(df_personer[col_s])]
-    if len(both_filled) > 0:
-        mismatched_ps = both_filled[both_filled[col_p] != both_filled[col_s]]
-    else:
-        mismatched_ps = pd.DataFrame()
-    n32 = len(mismatched_ps)
-    details32 = mismatched_ps[[COL_CRASH_ID, col_p, col_s]].copy() if n32 > 0 else None
-    sub_results.append(VerificationResult(
-        check_id="G3.2",
-        check_name="P and S categories mismatch when both filled",
-        status=_status_for("G3.2", n32),
-        summary=(
-            f"✓ All {len(both_filled)} persons with both P and S filled have matching values"
-            if n32 == 0
-            else f"⚠ {n32} persons where P ≠ S"
-        ),
-        issue_count=n32,
-        details=details32,
-    ))
-
-    # --- G3.3 — filled P or S ≠ Sammanvägd ---
-    # Exclude rows already flagged in G3.2
-    if n32 > 0:
-        df_check = df_personer.drop(mismatched_ps.index)
-    else:
-        df_check = df_personer
-
-    # Get the "effective" category: P if available, else S
-    eff_cat = df_check[col_p].where(~_empty(df_check[col_p]), df_check[col_s])
-    has_eff = ~_empty(eff_cat)
-    has_sam = ~_empty(df_check[col_sam])
-    comparable = df_check[has_eff & has_sam].copy()
-    comparable["_eff"] = eff_cat[has_eff & has_sam]
-
-    # Smart match: exact OR eff starts with sam
-    exact_match = comparable["_eff"] == comparable[col_sam]
-    prefix_match = comparable["_eff"].astype(str).apply(
-        lambda x: any(x.startswith(str(s)) for s in comparable[col_sam])
-    )
-    # Vectorised prefix match
-    prefix_match = comparable.apply(
-        lambda row: str(row["_eff"]).startswith(str(row[col_sam])), axis=1
-    )
-    mismatch_33 = comparable[~exact_match & ~prefix_match].copy()
-    mismatch_33 = mismatch_33[[COL_CRASH_ID, "_eff", col_sam]].rename(
-        columns={"_eff": "Filled_category"}
-    )
-    n33 = len(mismatch_33)
-    sub_results.append(VerificationResult(
-        check_id="G3.3",
-        check_name="Filled P/S ≠ Sammanvägd",
-        status=_status_for("G3.3", n33),
-        summary=(
-            "✓ All filled P/S categories match Sammanvägd"
-            if n33 == 0
-            else f"⚠ {n33} discrepancies between filled category and Sammanvägd"
-        ),
-        issue_count=n33,
-        details=mismatch_33 if n33 > 0 else None,
-    ))
-
-    # --- G3.4 — neither P nor S matches Sammanvägd when both filled ---
-    rows_34 = []
-    if len(both_filled) > 0:
-        bf = both_filled.copy()
-        bf_sam = bf[~_empty(bf[col_sam])].copy()
-        if len(bf_sam) > 0:
-            p_exact = bf_sam[col_p] == bf_sam[col_sam]
-            s_exact = bf_sam[col_s] == bf_sam[col_sam]
-            p_prefix = bf_sam.apply(lambda r: str(r[col_p]).startswith(str(r[col_sam])), axis=1)
-            s_prefix = bf_sam.apply(lambda r: str(r[col_s]).startswith(str(r[col_sam])), axis=1)
-            neither = ~(p_exact | s_exact | p_prefix | s_prefix)
-            mismatch_34 = bf_sam[neither][[COL_CRASH_ID, col_p, col_s, col_sam]].copy()
-        else:
-            mismatch_34 = pd.DataFrame()
-    else:
-        mismatch_34 = pd.DataFrame()
-
-    n34 = len(mismatch_34)
-    sub_results.append(VerificationResult(
-        check_id="G3.4",
-        check_name="Neither P nor S matches Sammanvägd (both filled)",
-        status=_status_for("G3.4", n34),
-        summary=(
-            "✓ At least one of P/S matches Sammanvägd in all cases"
-            if n34 == 0
-            else f"⚠ {n34} cases where neither P nor S matches Sammanvägd"
-        ),
-        issue_count=n34,
-        details=mismatch_34 if n34 > 0 else None,
-    ))
-
-    total = sum(s.issue_count for s in sub_results)
-    return VerificationResult(
-        check_id="G3",
-        check_name="Road-user category (Trafikantkategori) consistency",
-        status=_status_for("G3", total),
-        summary=f"{total} total issues across sub-checks",
-        issue_count=total,
-        sub_results=sub_results,
-    )
-
-
-def check_g4_timeline(
-    df_olyckor: pd.DataFrame | None,
-    df_personer: pd.DataFrame,
-) -> VerificationResult:
-    """**G4 — Crash timeline consistency** within each crash.
-
-    For each ``Olycksnummer`` with multiple person entries, checks that
-    ``År``, ``Månad``, ``Dag`` are identical and that ``Klockslag grupp (timme)``
-    is identical.  Date mismatches are reported first, then time mismatches
-    sorted by the magnitude of the difference.
-    """
-    date_cols = [COL_YEAR, COL_MONTH, COL_DAY]
-
-    # Only look at multi-person crashes
-    counts = df_personer.groupby(COL_CRASH_ID).size()
-    multi = counts[counts > 1].index
-    df_multi = df_personer[df_personer[COL_CRASH_ID].isin(multi)]
-
-    # Date uniqueness per crash
-    date_nuniq = df_multi.groupby(COL_CRASH_ID)[date_cols].nunique()
-    date_bad_mask = (date_nuniq > 1).any(axis=1)
-    date_bad_ids = date_nuniq[date_bad_mask].index
-
-    # Time uniqueness per crash (only for crashes with consistent dates)
-    time_nuniq = df_multi.groupby(COL_CRASH_ID)[COL_TIME].nunique()
-    time_bad_mask = (time_nuniq > 1) & ~time_nuniq.index.isin(date_bad_ids)
-    time_bad_ids = time_nuniq[time_bad_mask].index
-
-    rows = []
-    for cid in date_bad_ids:
-        crash = df_multi[df_multi[COL_CRASH_ID] == cid]
-        dates = crash[date_cols].drop_duplicates()
-        vals = [f"{r[COL_YEAR]}-{r[COL_MONTH]}-{r[COL_DAY]}" for _, r in dates.iterrows()]
-        rows.append({
-            "Olycksnummer": cid,
-            "Reason": "Date mismatch",
-            "Details": ", ".join(vals),
-        })
-
-    # Time issues — compute difference for sorting
-    time_rows = []
-    for cid in time_bad_ids:
-        crash = df_multi[df_multi[COL_CRASH_ID] == cid]
-        times = crash[COL_TIME].dropna().unique()
-        try:
-            nums = [float(t) for t in times]
-            diff = max(nums) - min(nums)
-        except (ValueError, TypeError):
-            diff = 0
-        time_rows.append({
-            "Olycksnummer": cid,
-            "Reason": "Time mismatch",
-            "Details": ", ".join(str(t) for t in times),
-            "_diff": diff,
-        })
-    time_rows.sort(key=lambda x: x["_diff"], reverse=True)
-    for r in time_rows:
-        r.pop("_diff")
-    rows.extend(time_rows)
-
-    details = pd.DataFrame(rows) if rows else None
-    n = len(rows)
-    n_date = len(date_bad_ids)
-    n_time = len(time_bad_ids)
-
-    if n == 0:
-        summary = "✓ All crashes have consistent date and time"
-    else:
-        summary = f"⚠ {n_date} date mismatches, {n_time} time mismatches"
-
-    return VerificationResult(
-        check_id="G4",
-        check_name="Crash timeline consistency",
-        status=_status_for("G4", n),
-        summary=summary,
-        issue_count=n,
-        details=details,
-    )
-
-
-def check_g5_location(
-    df_olyckor: pd.DataFrame | None,
-    df_personer: pd.DataFrame,
-) -> VerificationResult:
-    """**G5 — Location consistency** (Län / Kommun) within each crash."""
-    counts = df_personer.groupby(COL_CRASH_ID).size()
-    multi = counts[counts > 1].index
-    df_multi = df_personer[df_personer[COL_CRASH_ID].isin(multi)]
-
-    lan_nuniq = df_multi.groupby(COL_CRASH_ID)[COL_COUNTY].nunique()
-    kom_nuniq = df_multi.groupby(COL_CRASH_ID)[COL_MUNICIPALITY].nunique()
-
-    lan_bad = set(lan_nuniq[lan_nuniq > 1].index)
-    kom_bad = set(kom_nuniq[kom_nuniq > 1].index)
-    all_bad = lan_bad | kom_bad
-
-    rows = []
-    for cid in sorted(all_bad):
-        crash = df_multi[df_multi[COL_CRASH_ID] == cid]
-        reasons = []
-        details_parts = []
-        if cid in lan_bad:
-            reasons.append("Län mismatch")
-            vals = crash[COL_COUNTY].dropna().unique()
-            details_parts.append(f"Län: {', '.join(str(v) for v in vals)}")
-        if cid in kom_bad:
-            reasons.append("Kommun mismatch")
-            vals = crash[COL_MUNICIPALITY].dropna().unique()
-            details_parts.append(f"Kommun: {', '.join(str(v) for v in vals)}")
-        rows.append({
-            "Olycksnummer": cid,
-            "Reason": ", ".join(reasons),
-            "Details": "; ".join(details_parts),
-        })
-
-    details = pd.DataFrame(rows) if rows else None
-    n = len(rows)
-
-    return VerificationResult(
-        check_id="G5",
-        check_name="Location consistency (Län / Kommun)",
-        status=_status_for("G5", n),
-        summary=(
-            "✓ All crashes have consistent location"
-            if n == 0
-            else f"⚠ {n} crashes with location inconsistencies"
-        ),
-        issue_count=n,
-        details=details,
-    )
-
-
-def check_g6_duplicate_persons(
-    df_olyckor: pd.DataFrame | None,
-    df_personer: pd.DataFrame,
-) -> VerificationResult:
-    """**G6 — Potential duplicate persons** across different crashes.
-
-    Groups persons by demographics + road-user type + date/time/location.
-    If the same combination appears in multiple different crashes, it is
-    flagged as a potential duplicate.  Rows with missing age or unknown
-    gender (``Uppgift saknas``) are excluded.
-    """
-    dup_cols = DUPLICATE_DETECTION_COLS
-
-    # Check that all columns exist
-    missing_cols = [c for c in dup_cols if c not in df_personer.columns]
-    if missing_cols:
-        # Check could not run — escalate to critical so it can't be ignored.
-        return VerificationResult(
-            check_id="G6",
-            check_name="Duplicate person detection",
-            status="critical",
-            summary=f"✗ Missing columns: {missing_cols}",
-            issue_count=0,
-        )
-
-    df_dup = df_personer.copy()
-    for col in dup_cols:
-        df_dup[col] = df_dup[col].fillna("").astype(str)
-
-    # Exclude unknowns
-    df_dup = df_dup[
-        (df_dup[COL_AGE] != "")
-        & (df_dup[COL_GENDER] != "")
-        & (df_dup[COL_GENDER].str.lower() != GENDER_UNKNOWN.lower())
-    ]
-
-    grouped = df_dup.groupby(dup_cols)
-
-    rows = []
-    for name, group in grouped:
-        unique_crashes = group[COL_CRASH_ID].unique()
-        if len(unique_crashes) > 1:
-            info = dict(zip(dup_cols, name))
-            rows.append({
-                "Olycksnummer": ", ".join(str(c) for c in sorted(unique_crashes)),
-                "Num_crashes": len(unique_crashes),
-                "Num_entries": len(group),
-                "Age": info.get(COL_AGE, ""),
-                "Gender": info.get(COL_GENDER, ""),
-                "Date": f"{info.get(COL_YEAR, '')}-{info.get(COL_MONTH, '')}-{info.get(COL_DAY, '')}",
-                "Time": info.get(COL_TIME, ""),
-                "County": info.get(COL_COUNTY, ""),
-                "Municipality": info.get(COL_MUNICIPALITY, ""),
-                "Street": info.get(COL_STREET, ""),
-                "Road_user_type": info.get(COL_CATEGORY_MAIN, ""),
-            })
-
-    # Sort by number of crashes descending
-    rows.sort(key=lambda x: x["Num_crashes"], reverse=True)
-
-    details = pd.DataFrame(rows) if rows else None
-    n = len(rows)
-
-    return VerificationResult(
-        check_id="G6",
-        check_name="Duplicate person detection (all road-user types)",
-        status=_status_for("G6", n),
-        summary=(
-            "✓ No potential duplicate persons found"
-            if n == 0
-            else f"⚠ {n} potential duplicate-person groups across different crashes"
-        ),
-        issue_count=n,
-        details=details,
-    )
-
-
-# ╔═══════════════════════════════════════════════════════════════════════════╗
-# ║  CYCLING-SPECIFIC CHECKS  (C1 – C3)                                    ║
-# ╚═══════════════════════════════════════════════════════════════════════════╝
-
-
-def check_c1_cykel_singel(
-    df_olyckor: pd.DataFrame,
-    df_personer: pd.DataFrame,
-) -> VerificationResult:
-    """**C1 — Cykel singel crash validation**.
-
-    For crashes whose STRADA Olyckstyp is ``"G1 (cykel singel)"`` — the
-    crash-type code for single-cyclist crashes; *not* related to our check
-    ``G1``:
-
-      - There should be exactly one person entry.
-      - That entry should have ``Huvudgrupp == 'Cykel'``.
-
-    When multiple persons exist, passengers are counted via the keyword
-    ``Passagerare`` in the role columns.
-    """
-    singel_ids = df_olyckor.loc[
-        df_olyckor[COL_CRASH_TYPE] == CYKEL_SINGEL_TYPE, COL_CRASH_ID
-    ].unique()
-    singel_persons = df_personer[df_personer[COL_CRASH_ID].isin(singel_ids)]
-    person_counts = singel_persons.groupby(COL_CRASH_ID).size()
-
-    rows = []
-
-    # Multi-person cykel singel crashes
-    multi_ids = person_counts[person_counts > 1].index
-    for cid in multi_ids:
-        grp = singel_persons[singel_persons[COL_CRASH_ID] == cid]
-        n_persons = len(grp)
-        # Count passengers
-        p_roles = grp[COL_ROLE_P].fillna("").str.lower()
-        s_roles = grp[COL_ROLE_S].fillna("").str.lower()
-        n_passengers = int(
-            (p_roles.str.contains("passagerare") | s_roles.str.contains("passagerare")).sum()
-        )
-        if n_passengers > 0:
-            reason = f"Multiple entries ({n_persons} persons, {n_passengers} passengers)"
-        else:
-            reason = f"Multiple entries ({n_persons} persons)"
-        rows.append({"Olycksnummer": cid, "Reason": reason})
-
-    # Single-person but not Cykel
-    single_ids = person_counts[person_counts == 1].index
-    single = singel_persons[singel_persons[COL_CRASH_ID].isin(single_ids)]
-    not_cykel = single[single[COL_CATEGORY_MAIN] != CYKEL_CATEGORY]
-    for _, r in not_cykel.iterrows():
-        rows.append({
-            "Olycksnummer": r[COL_CRASH_ID],
-            "Reason": f"Single entry but not Cykel (is: {r[COL_CATEGORY_MAIN]})",
-        })
-
-    details = pd.DataFrame(rows) if rows else None
-    n = len(rows)
-
-    return VerificationResult(
-        check_id="C1",
-        check_name="Cykel singel crash validation",
-        status=_status_for("C1", n),
-        summary=(
-            f"✓ All {len(singel_ids)} cykel singel crashes have exactly one Cykel entry"
-            if n == 0
-            else f"⚠ {n} cykel singel crashes with issues"
-        ),
-        issue_count=n,
-        details=details,
-    )
-
-
-def check_c2_cykel_presence(
-    df_olyckor: pd.DataFrame | None,
-    df_personer: pd.DataFrame,
-) -> VerificationResult:
-    """**C2 — Cykel presence** in every crash.
-
-    Verifies that each ``Olycksnummer`` has at least one person with
-    ``Huvudgrupp == 'Cykel'``.
-    """
-    has_cykel = df_personer.groupby(COL_CRASH_ID)[COL_CATEGORY_MAIN].apply(
-        lambda g: (g == CYKEL_CATEGORY).any()
-    )
-    missing_ids = has_cykel[~has_cykel].index
-
-    rows = []
-    for cid in missing_ids:
-        grp = df_personer[df_personer[COL_CRASH_ID] == cid]
-        cats = grp[COL_CATEGORY_MAIN].dropna().unique().tolist()
-        rows.append({
-            "Olycksnummer": cid,
-            "Huvudgrupp_values": ", ".join(str(v) for v in cats) if cats else "No values",
-        })
-
-    details = pd.DataFrame(rows) if rows else None
-    n = len(rows)
-
-    return VerificationResult(
-        check_id="C2",
-        check_name="Cykel presence in every crash",
-        status=_status_for("C2", n),
-        summary=(
-            f"✓ All {len(has_cykel)} crashes have at least one Cykel entry"
-            if n == 0
-            else f"⚠ {n} crashes without any Cykel entry"
-        ),
-        issue_count=n,
-        details=details,
-    )
-
-
-def check_c3_cykel_passengers_only(
-    df_olyckor: pd.DataFrame | None,
-    df_personer: pd.DataFrame,
-) -> VerificationResult:
-    """**C3 — Cykel crashes with only passengers, no driver**.
-
-    Flags crashes where *every* Cykel entry has a passenger role
-    (``Passagerare bak``, ``Passagerare fram``, etc.) and none is a
-    driver / cyclist.
-    """
-    cykel = df_personer[df_personer[COL_CATEGORY_MAIN] == CYKEL_CATEGORY].copy()
-
-    if len(cykel) == 0:
-        return VerificationResult(
-            check_id="C3",
-            check_name="Cykel crashes with only passengers (no driver)",
-            status="pass",
-            summary="No Cykel entries in dataset",
-            issue_count=0,
-        )
-
-    cykel["_is_pax"] = False
-    for role in PASSENGER_ROLES:
-        cykel["_is_pax"] |= cykel[COL_ROLE_P].fillna("").str.contains(role, na=False)
-        cykel["_is_pax"] |= cykel[COL_ROLE_S].fillna("").str.contains(role, na=False)
-
-    agg = cykel.groupby(COL_CRASH_ID)["_is_pax"].agg(["all", "sum", "count"])
-    agg.columns = ["all_pax", "n_pax", "n_cykel"]
-    only_pax = agg[agg["all_pax"]]
-
-    rows = [
-        {"Olycksnummer": cid, "Num_passengers": int(r["n_pax"])}
-        for cid, r in only_pax.iterrows()
-    ]
-
-    details = pd.DataFrame(rows) if rows else None
-    n = len(rows)
-
-    return VerificationResult(
-        check_id="C3",
-        check_name="Cykel crashes with only passengers (no driver)",
-        status=_status_for("C3", n),
-        summary=(
-            f"✓ All Cykel crashes have at least one driver/cyclist"
-            if n == 0
-            else f"⚠ {n} Cykel crashes with only passengers"
-        ),
-        issue_count=n,
-        details=details,
-    )
-
-
-# ╔═══════════════════════════════════════════════════════════════════════════╗
-# ║  RUNNER                                                                 ║
-# ╚═══════════════════════════════════════════════════════════════════════════╝
-
-# Registry of checks
-GENERIC_CHECKS = [
+from strada.core.checks import (
+    CHECK_SEVERITY,
+    check_c1_cykel_singel,
+    check_c2_cykel_presence,
+    check_c3_cykel_passengers_only,
     check_g1_id_consistency,
     check_g2_crash_type,
     check_g3_road_user_category,
     check_g4_timeline,
     check_g5_location,
     check_g6_duplicate_persons,
+)
+from strada.io.reporters import VerificationResult
+
+
+# ╔═══════════════════════════════════════════════════════════════════════════╗
+# ║  REGISTRY                                                                 ║
+# ╚═══════════════════════════════════════════════════════════════════════════╝
+
+CheckFunc = Callable[[Optional[pd.DataFrame], pd.DataFrame], VerificationResult]
+
+
+@dataclass(frozen=True)
+class CheckSpec:
+    """Metadata for a single data-quality check.
+
+    To add a new check: define a ``check_*`` function in ``strada.core.checks``,
+    add its severity to ``CHECK_SEVERITY`` there, then append a ``CheckSpec``
+    to ``CHECK_SPECS`` below.
+    """
+    id: str                                       # "G1", "C2", ...
+    name: str                                     # short label used everywhere
+    description: str                              # longer text for the About tab
+    severity: Literal["critical", "non-critical"]
+    category: str                                 # CATEGORY_META key
+    family: Literal["generic", "cycling"]
+    func: CheckFunc
+
+
+CHECK_SPECS: list[CheckSpec] = [
+    CheckSpec(
+        id="G1",
+        name="Crash-ID consistency",
+        description="Crash-ID consistency between datasets",
+        severity=CHECK_SEVERITY["G1"],
+        category="identifier",
+        family="generic",
+        func=check_g1_id_consistency,
+    ),
+    CheckSpec(
+        id="G2",
+        name="Crash-type consistency",
+        description="Crash-type (Olyckstyp) consistency",
+        severity=CHECK_SEVERITY["G2"],
+        category="identifier",
+        family="generic",
+        func=check_g2_crash_type,
+    ),
+    CheckSpec(
+        id="G3",
+        name="Road-user category",
+        description="Road-user category (Trafikantkategori)",
+        severity=CHECK_SEVERITY["G3"],
+        category="identifier",
+        family="generic",
+        func=check_g3_road_user_category,
+    ),
+    CheckSpec(
+        id="G4",
+        name="Timeline consistency",
+        description="Crash timeline consistency (date & time)",
+        severity=CHECK_SEVERITY["G4"],
+        category="temporal_spatial",
+        family="generic",
+        func=check_g4_timeline,
+    ),
+    CheckSpec(
+        id="G5",
+        name="Location consistency",
+        description="Location consistency (Län / Kommun)",
+        severity=CHECK_SEVERITY["G5"],
+        category="temporal_spatial",
+        family="generic",
+        func=check_g5_location,
+    ),
+    CheckSpec(
+        id="G6",
+        name="Duplicate person",
+        description="Duplicate person detection",
+        severity=CHECK_SEVERITY["G6"],
+        category="duplicates",
+        family="generic",
+        func=check_g6_duplicate_persons,
+    ),
+    CheckSpec(
+        id="C1",
+        name="Cykel singel validation",
+        description="Cykel singel crash validation",
+        severity=CHECK_SEVERITY["C1"],
+        category="cycling_structure",
+        family="cycling",
+        func=check_c1_cykel_singel,
+    ),
+    CheckSpec(
+        id="C2",
+        name="Cykel presence",
+        description="Cykel presence in every crash",
+        severity=CHECK_SEVERITY["C2"],
+        category="cycling_structure",
+        family="cycling",
+        func=check_c2_cykel_presence,
+    ),
+    CheckSpec(
+        id="C3",
+        name="Cykel passengers only",
+        description="Cykel crashes with only passengers",
+        severity=CHECK_SEVERITY["C3"],
+        category="cycling_structure",
+        family="cycling",
+        func=check_c3_cykel_passengers_only,
+    ),
 ]
 
-CYCLING_CHECKS = [
-    check_c1_cykel_singel,
-    check_c2_cykel_presence,
-    check_c3_cykel_passengers_only,
-]
+
+# ── Score-category display metadata ──
+#
+# Order here determines display order in the Quality-Score banner. The
+# em-dash range in the cycling sub_label ("C1–C3") is presentation-only and
+# can't be auto-derived, so this metadata is kept explicit.
+
+CATEGORY_META: dict[str, tuple[str, str]] = {
+    "identifier":         ("Identifier integrity", "G1, G2, G3"),
+    "temporal_spatial":   ("Temporal & spatial",   "G4, G5"),
+    "duplicates":         ("Duplicates",           "G6"),
+    "cycling_structure":  ("Cycling structure",    "C1–C3"),
+}
+
+
+# ── Derived lookups (consumed by app.py, internal helpers, and scoring) ──
+
+#: ``{category_name: {"checks": [...], "sub_label": "..."}}`` — derived from
+#: ``CHECK_SPECS`` grouped by ``spec.category`` plus ``CATEGORY_META``.
+SCORE_CATEGORIES: dict[str, dict] = {
+    display_name: {
+        "checks": [s.id for s in CHECK_SPECS if s.category == cat_key],
+        "sub_label": sub_label,
+    }
+    for cat_key, (display_name, sub_label) in CATEGORY_META.items()
+}
+
+
+def _specs_for_family(family: str) -> list[CheckSpec]:
+    return [s for s in CHECK_SPECS if s.family == family]
+
+
+# Lists of bare functions, kept for any code that wants to iterate them
+# directly (most callers should go through ``run_checks``).
+GENERIC_CHECKS: list[CheckFunc] = [s.func for s in _specs_for_family("generic")]
+CYCLING_CHECKS: list[CheckFunc] = [s.func for s in _specs_for_family("cycling")]
+
+
+# ╔═══════════════════════════════════════════════════════════════════════════╗
+# ║  RUNNER                                                                   ║
+# ╚═══════════════════════════════════════════════════════════════════════════╝
 
 
 def run_checks(
@@ -746,39 +197,33 @@ def run_checks(
     include_cycling: bool = False,
     checks: list[str] | None = None,
 ) -> list[VerificationResult]:
-    """Run selected verification checks and return results.
+    """Run selected verification checks.
 
     Parameters
     ----------
-    df_olyckor : pd.DataFrame
-    df_personer : pd.DataFrame
+    df_olyckor, df_personer : pd.DataFrame
     include_cycling : bool
         If ``True``, cycling-specific checks (C1–C3) are also run.
     checks : list[str], optional
         Run only checks whose ``check_id`` appears in this list
-        (e.g. ``["G1", "G4", "C2"]``).  If ``None``, run all applicable.
+        (e.g. ``["G1", "G4", "C2"]``). If ``None``, run all applicable.
 
     Returns
     -------
     list[VerificationResult]
     """
-    all_funcs = list(GENERIC_CHECKS)
-    if include_cycling:
-        all_funcs.extend(CYCLING_CHECKS)
-
     results = []
-    for func in all_funcs:
-        # Determine check_id from the function (convention: last part of name)
-        # We'll just run it and check the result's id
-        result = func(df_olyckor, df_personer)
-        if checks is None or result.check_id in checks:
-            results.append(result)
-
+    for spec in CHECK_SPECS:
+        if spec.family == "cycling" and not include_cycling:
+            continue
+        if checks is not None and spec.id not in checks:
+            continue
+        results.append(spec.func(df_olyckor, df_personer))
     return results
 
 
 # ╔═══════════════════════════════════════════════════════════════════════════╗
-# ║  QUALITY SCORING                                                        ║
+# ║  QUALITY SCORING                                                          ║
 # ╚═══════════════════════════════════════════════════════════════════════════╝
 #
 # Scoring model
@@ -789,35 +234,18 @@ def run_checks(
 #   if critical: deduction *= CRITICAL_MULT
 #
 # Sub-checks do NOT get an individual base_penalty — their issues are already
-# rolled up into the parent's issue_count by the verify functions above.
+# rolled up into the parent's issue_count by the check functions.
 #
 # Checks that were not run are excluded entirely (no penalty, no credit).
 # Category sub-scores use the same formula, applied independently to the
 # checks in each category.
 
 
-#  Single source of truth for severity — app.py derives its C/W display tags
-#  from this mapping.
-CHECK_SEVERITY: dict[str, str] = {
-    "G1": "critical",       # crash-ID consistency between datasets
-    "G2": "critical",       # crash-type consistency
-    "G3": "critical",       # road-user category consistency
-    "G4": "non-critical",   # timeline consistency
-    "G5": "non-critical",   # location consistency
-    "G6": "non-critical",   # duplicate person detection
-    "C1": "critical",       # cykel singel (STRADA Olyckstyp G1) validation
-    "C2": "non-critical",   # cykel presence
-    "C3": "non-critical",   # cykel passengers only
-}
-
-# ── Weights ──
-
 BASE_PENALTY   = 3.0
 PER_ISSUE_RATE = 0.02
 MAX_CAP        = 12.0
 CRITICAL_MULT  = 2.0
 
-# ── Grade thresholds ──
 
 GRADE_THRESHOLDS: list[tuple[int, str, str]] = [
     (90, "A", "EXCELLENT"),
@@ -834,30 +262,6 @@ def _grade_for(score: int) -> tuple[str, str]:
             return letter, label
     return "F", "FAILING"
 
-
-# ── Category grouping ──
-
-SCORE_CATEGORIES: dict[str, dict] = {
-    "Identifier integrity": {
-        "checks": ["G1", "G2", "G3"],
-        "sub_label": "G1, G2, G3",
-    },
-    "Temporal & spatial": {
-        "checks": ["G4", "G5"],
-        "sub_label": "G4, G5",
-    },
-    "Duplicates": {
-        "checks": ["G6"],
-        "sub_label": "G6",
-    },
-    "Cycling structure": {
-        "checks": ["C1", "C2", "C3"],
-        "sub_label": "C1–C3",
-    },
-}
-
-
-# ── Result containers ──
 
 @dataclass
 class CategoryScore:
@@ -880,10 +284,8 @@ class QualityScore:
     summary: str = ""
 
 
-# ── Core computation ──
-
 def _deduction_for(check_id: str, issue_count: int) -> float:
-    """Compute deduction for a single parent-level check."""
+    """Deduction for a single parent-level check."""
     if issue_count == 0:
         return 0.0
     raw = BASE_PENALTY + min(issue_count * PER_ISSUE_RATE, MAX_CAP)
@@ -895,12 +297,9 @@ def _deduction_for(check_id: str, issue_count: int) -> float:
 def compute_quality_score(results: list[VerificationResult]) -> QualityScore:
     """Compute overall quality score and per-category breakdown.
 
-    Parameters
-    ----------
-    results : list[VerificationResult]
-        Parent-level results only (G1, G2, ...).  Sub-results are read
-        from each result's sub_results list; their issue counts are
-        already rolled up into the parent.
+    ``results`` is the list of parent-level results returned by ``run_checks``.
+    Sub-results are read from each result's ``sub_results`` list; their issue
+    counts are already rolled up into the parent.
     """
     result_map: dict[str, VerificationResult] = {r.check_id: r for r in results}
     ran_ids = set(result_map.keys())
@@ -958,14 +357,14 @@ def compute_quality_score(results: list[VerificationResult]) -> QualityScore:
     parts = []
     if critical_failed > 0:
         noun = "check" if critical_failed == 1 else "checks"
-        parts.append(str(critical_failed) + " critical " + noun + " failed")
+        parts.append(f"{critical_failed} critical {noun} failed")
     w_checks = sum(
         1 for r in results
         if r.issue_count > 0 and CHECK_SEVERITY.get(r.check_id) != "critical"
     )
     if w_checks > 0:
         noun = "check" if w_checks == 1 else "checks"
-        parts.append(str(w_checks) + " " + noun + " need attention")
+        parts.append(f"{w_checks} {noun} need attention")
 
     if not parts:
         summary = "All checks passed. Dataset is publication-ready."

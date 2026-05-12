@@ -445,13 +445,19 @@ STRADA_toolbox/
     │
     ├── config/
     │   ├── __init__.py         # Re-exports from constants
-    │   └── constants.py        # All column names, keywords, magic strings
+    │   ├── constants.py        # All column names, keywords, magic strings
+    │   └── styles.py           # Dashboard CSS
     │
     ├── core/
     │   ├── __init__.py
     │   ├── preprocess.py       # Excel→CSV conversion, year filtering
-    │   ├── verify.py           # All 9 verification checks (G1–G6, C1–C3)
+    │   ├── checks.py           # The 9 check functions (G1–G6, C1–C3)
+    │   ├── verify.py           # Check registry (CheckSpec), runner, quality scoring
     │   └── classify.py         # Micromobility classification
+    │
+    ├── web/
+    │   ├── __init__.py
+    │   └── components.py       # HTML builders for the dashboard
     │
     └── io/
         ├── __init__.py
@@ -463,7 +469,9 @@ STRADA_toolbox/
 
 - **Separation of concerns:** Core logic (`core/`) is independent of the interface. Both `cli.py` and `app.py` call the same functions.
 - **Centralised constants:** All column names, keywords, and magic strings are in `config/constants.py`. If the STRADA schema changes, only one file needs updating.
+- **Registry-driven checks:** Every check is one `CheckSpec` entry in `core/verify.py`. Severity tags, score categories, generic-vs-cycling grouping, dashboard checkbox labels, and the About-tab tables all derive from this single list — adding a check is a two-file edit (see [Adding new checks](#adding-new-checks)).
 - **Structured results:** Every check returns a `VerificationResult` dataclass, making it easy to add new report formats or interfaces.
+- **Pure HTML components:** Dashboard rendering helpers live in `web/components.py` as plain functions returning HTML strings — no Streamlit calls — so they're easy to test and reuse.
 - **No hardcoded paths:** All file paths are passed as arguments.
 
 ---
@@ -486,25 +494,51 @@ MICROMOBILITY_KEYWORDS = {
 
 ### Adding new checks
 
-1. Create a new function in `strada/core/verify.py` following the pattern:
+Checks are registry-driven, so adding one is a **two-file edit**:
+
+**1.** In `strada/core/checks.py`, define the function and add its severity to `CHECK_SEVERITY`:
 
 ```python
+CHECK_SEVERITY: dict[str, str] = {
+    ...,
+    "G7": "non-critical",   # ← add your check's severity here
+}
+
 def check_g7_my_new_check(df_olyckor, df_personer) -> VerificationResult:
     # ... your logic ...
     return VerificationResult(
         check_id="G7",
         check_name="My new check",
-        status=_status_for("G7", n),   # pass / warning / critical (uses CHECK_SEVERITY)
+        status=_status_for("G7", n),   # auto-derives from CHECK_SEVERITY
         summary="...",
         issue_count=n,
         details=df_details,
     )
 ```
 
-Don't forget to add an entry for `"G7"` in `CHECK_SEVERITY` so the helper knows whether to grade it as critical or warning.
+**2.** In `strada/core/verify.py`, import the function and append a `CheckSpec` entry to `CHECK_SPECS`:
 
-2. Add it to the `GENERIC_CHECKS` or `CYCLING_CHECKS` list at the bottom of the file.
-3. The CLI and web dashboard will automatically pick it up.
+```python
+from strada.core.checks import (
+    ...,
+    check_g7_my_new_check,
+)
+
+CHECK_SPECS: list[CheckSpec] = [
+    ...,
+    CheckSpec(
+        id="G7",
+        name="My new check",                       # used for checkbox + result name
+        description="My new check, longer text",   # used in About tab
+        severity=CHECK_SEVERITY["G7"],
+        category="temporal_spatial",               # one of CATEGORY_META keys
+        family="generic",                          # "generic" or "cycling"
+        func=check_g7_my_new_check,
+    ),
+]
+```
+
+That's it — the CLI, web dashboard checkboxes, bundle presets, score categories, and About-tab tables all pick it up automatically. To add a new score category instead of reusing an existing one, also extend `CATEGORY_META` in `verify.py`.
 
 ### Changing column names
 

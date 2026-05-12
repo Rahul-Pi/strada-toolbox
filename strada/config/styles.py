@@ -4,16 +4,9 @@ Centralised stylesheet for the dashboard. ``inject_css()`` is called once
 near the top of ``app.py``; subsequent renders just produce widgets and
 inline HTML that reference these classes.
 
-Organisation
-------------
-Four logical sections, kept in render order:
-
-  1. App chrome      — page-level overrides (hide deploy button).
-  2. Quality banner  — two-card overall-quality + score-breakdown layout.
-  3. Ready-to-run    — navy panel + cyan run button above results.
-  4. About tab       — header, ref rows, checks tables, link cards.
-
-If you tweak a colour or spacing here, no other file needs to change.
+The full stylesheet is split into four named string constants matching the
+four logical sections of the dashboard. Search for the constant name to
+jump to a section.
 """
 
 from __future__ import annotations
@@ -21,20 +14,21 @@ from __future__ import annotations
 import streamlit as st
 
 
-_CSS = """
-<style>
-/* ─────────────────────────────────────────────────────────────────────────
- * 1. App chrome
- * ────────────────────────────────────────────────────────────────────── */
+# ─────────────────────────────────────────────────────────────────────────────
+#  1. App chrome — page-level overrides
+# ─────────────────────────────────────────────────────────────────────────────
 
+_CSS_CHROME = """
 .stAppDeployButton { display: none; }
+"""
 
 
-/* ─────────────────────────────────────────────────────────────────────────
- * 2. Quality-score banner
- *    Rendered by _render_quality_banner() in app.py
- * ────────────────────────────────────────────────────────────────────── */
+# ─────────────────────────────────────────────────────────────────────────────
+#  2. Quality-score banner
+#     Rendered by render_quality_banner() in strada.web.components
+# ─────────────────────────────────────────────────────────────────────────────
 
+_CSS_QUALITY_BANNER = """
 .strada-score-grid { display: grid; grid-template-columns: 1fr 2.3fr; gap: 16px; margin: 8px 0 24px 0; }
 .strada-score-left { background: linear-gradient(135deg, #0a2540 0%, #0d2c4a 100%); color: #fff; border-radius: 12px; padding: 24px 28px; }
 .strada-score-right { background: var(--secondary-background-color); border: 1px solid rgba(127, 127, 127, 0.2); border-radius: 12px; padding: 24px 28px; color: var(--text-color); }
@@ -54,13 +48,15 @@ _CSS = """
 .strada-cat-na { color: rgba(127, 127, 127, 0.7); }
 .strada-bar-bg { background: rgba(127, 127, 127, 0.18); border-radius: 4px; height: 6px; overflow: hidden; }
 .strada-bar-fill { height: 100%; border-radius: 4px; }
+"""
 
 
-/* ─────────────────────────────────────────────────────────────────────────
- * 3. Ready-to-run banner
- *    Rendered above the Run-verification button on the Verify tab.
- * ────────────────────────────────────────────────────────────────────── */
+# ─────────────────────────────────────────────────────────────────────────────
+#  3. Ready-to-run banner
+#     Rendered above the Run-verification button on the Verify tab.
+# ─────────────────────────────────────────────────────────────────────────────
 
+_CSS_READY_BANNER = """
 /* Paint the whole columns row navy when it contains our marker */
 div[data-testid="stHorizontalBlock"]:has(.strada-banner-marker) {
     background: #0a2540;
@@ -99,13 +95,15 @@ div[data-testid="stHorizontalBlock"]:has(.strada-banner-marker)
     margin-bottom: 10px;
     color: #e6edf5;
 }
+"""
 
 
-/* ─────────────────────────────────────────────────────────────────────────
- * 4. About tab
- *    Rendered by the About-tab st.html(...) call in app.py.
- * ────────────────────────────────────────────────────────────────────── */
+# ─────────────────────────────────────────────────────────────────────────────
+#  4. About tab
+#     Rendered by render_about_html() in strada.web.components
+# ─────────────────────────────────────────────────────────────────────────────
 
+_CSS_ABOUT = """
 .strada-about { display: flex; flex-direction: column; gap: 22px; max-width: 1100px; padding: 8px 0 32px 0; }
 .strada-about-eyebrow { font-size: 0.72em; color: rgba(127, 127, 127, 0.85); font-weight: 500; letter-spacing: 1.5px; text-transform: uppercase; }
 .strada-about-title { font-size: 1.7em; font-weight: 600; color: var(--text-color); letter-spacing: -0.3px; margin: 4px 0 0 0; padding: 0; }
@@ -144,8 +142,10 @@ div[data-testid="stHorizontalBlock"]:has(.strada-banner-marker)
 .strada-linkcard-sub { font-size: 0.82em; color: rgba(127, 127, 127, 0.85); margin-top: 4px; }
 
 .strada-footer { margin-top: 18px; padding-top: 16px; border-top: 1px solid rgba(127, 127, 127, 0.18); font-size: 0.78em; color: rgba(127, 127, 127, 0.8); }
-</style>
 """
+
+
+_CSS = f"<style>{_CSS_CHROME}{_CSS_QUALITY_BANNER}{_CSS_READY_BANNER}{_CSS_ABOUT}</style>"
 
 
 def inject_css() -> None:

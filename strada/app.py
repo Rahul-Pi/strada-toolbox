@@ -19,12 +19,20 @@ from pathlib import Path
 import streamlit as st
 import pandas as pd
 
+from strada import __version__
+from strada.config.styles import inject_css
 from strada.core.verify import (
-    CHECK_SEVERITY,
+    CHECK_SPECS,
     QualityScore,
     compute_quality_score,
+    run_checks,
 )
-from strada.config.styles import inject_css
+from strada.web.components import (
+    render_about_html,
+    render_quality_banner_html,
+    render_ready_banner_html,
+)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Page config
@@ -59,6 +67,8 @@ def _load_df(uploaded_file) -> pd.DataFrame:
 #  Verify-tab bundles & checks
 # ─────────────────────────────────────────────────────────────────────────────
 
+#: Bundle presets are a UX concern (not check metadata), so they live here.
+#: The validation assert below ensures every referenced check_id exists.
 BUNDLES: dict[str, dict] = {
     "quick": {
         "name": "Quick scan",
@@ -87,23 +97,20 @@ BUNDLES: dict[str, dict] = {
     },
 }
 
-# (id, label) — severity tag ("C" critical / "W" warning) is derived from
-# CHECK_SEVERITY in strada.core.verify (single source of truth).
-_CHECK_LABELS: list[tuple[str, str]] = [
-    ("G1", "Crash-ID consistency"),
-    ("G2", "Crash-type consistency"),
-    ("G3", "Road-user category"),
-    ("G4", "Timeline consistency"),
-    ("G5", "Location consistency"),
-    ("G6", "Duplicate person"),
-    ("C1", "Cykel singel validation"),
-    ("C2", "Cykel presence"),
-    ("C3", "Cykel passengers only"),
-]
+_VALID_CHECK_IDS = {s.id for s in CHECK_SPECS}
+for _bid, _b in BUNDLES.items():
+    _unknown = [cid for cid in _b["checks"] if cid not in _VALID_CHECK_IDS]
+    assert not _unknown, f"BUNDLES['{_bid}'] references unknown check IDs: {_unknown}"
+
+
+# (id, label, severity-tag "C"/"W") — derived from the registry.
 CHECKS: list[tuple[str, str, str]] = [
-    (cid, label, "C" if CHECK_SEVERITY.get(cid) == "critical" else "W")
-    for cid, label in _CHECK_LABELS
+    (s.id, s.name, "C" if s.severity == "critical" else "W")
+    for s in CHECK_SPECS
 ]
+
+_GENERIC_SPECS = [s for s in CHECK_SPECS if s.family == "generic"]
+_CYCLING_SPECS = [s for s in CHECK_SPECS if s.family == "cycling"]
 
 
 def _apply_bundle(bundle_id: str) -> None:
@@ -124,94 +131,9 @@ def _on_check_toggle() -> None:
     st.session_state.active_bundle = "custom"
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  Quality-score banner
-# ─────────────────────────────────────────────────────────────────────────────
-
-_GRADE_PILL_COLORS: dict[str, tuple[str, str]] = {
-    # grade letter → (text color, background color)
-    "A": ("#0e5e2c", "#d4f4dd"),
-    "B": ("#8a5a00", "#fff3cd"),
-    "C": ("#a04500", "#ffe4cc"),
-    "D": ("#a02020", "#fcd5d5"),
-    "F": ("#7a1414", "#f7c1c1"),
-}
-
-
-def _score_color(score: int) -> str:
-    if score >= 90:
-        return "#1f8a45"   # green
-    if score >= 75:
-        return "#c89020"   # amber
-    if score >= 60:
-        return "#d97706"   # orange
-    if score >= 40:
-        return "#dc2626"   # red
-    return "#7c1c1c"       # dark red
-
-
 def _render_quality_banner(qs: QualityScore) -> None:
-    """Render the two-card overall-quality + per-category banner.
-
-    Uses ``st.html`` (not ``st.markdown``) so the indented inner HTML doesn't
-    get reinterpreted as Markdown code blocks. Right card uses Streamlit's
-    theme variables so it adapts to light/dark themes.
-    """
-    text_col, bg_col = _GRADE_PILL_COLORS.get(qs.grade, ("#444", "#eee"))
-
-    # Build category rows as a single inline string (no leading whitespace
-    # per line, so even if rendering ever falls back to a markdown processor
-    # we're safe).
-    row_parts: list[str] = []
-    for cat in qs.categories:
-        head = (
-            f'<div><span class="strada-cat-name">{cat.name}</span>'
-            f' <code class="strada-cat-sub">{cat.sub_label}</code></div>'
-        )
-        if cat.score is None:
-            row_parts.append(
-                '<div class="strada-cat-row">'
-                f'<div class="strada-cat-head">{head}'
-                '<div class="strada-cat-pct strada-cat-na">&mdash;</div>'
-                '</div>'
-                '<div class="strada-bar-bg"></div>'
-                '</div>'
-            )
-        else:
-            color = _score_color(cat.score)
-            row_parts.append(
-                '<div class="strada-cat-row">'
-                f'<div class="strada-cat-head">{head}'
-                f'<div class="strada-cat-pct" style="color:{color};">{cat.score}%</div>'
-                '</div>'
-                '<div class="strada-bar-bg">'
-                f'<div class="strada-bar-fill" style="width:{cat.score}%;background:{color};"></div>'
-                '</div>'
-                '</div>'
-            )
-    rows_html = "".join(row_parts)
-
-    # Each sentence on its own line in the summary
-    sentences = [s.strip() for s in qs.summary.split(". ") if s.strip()]
-    sentences = [s if s.endswith(".") else s + "." for s in sentences]
-    summary_html = "<br>".join(sentences) if sentences else qs.summary
-
-    st.html(
-        f"""
-<div class="strada-score-grid">
-<div class="strada-score-left">
-<div class="strada-score-label">OVERALL DATA QUALITY</div>
-<div class="strada-score-num"><span class="strada-score-big">{qs.overall}</span><span class="strada-score-tot">/ 100</span></div>
-<div><span class="strada-grade-pill" style="background:{bg_col};color:{text_col};">GRADE {qs.grade} &middot; {qs.grade_label}</span></div>
-<div class="strada-score-summary">{summary_html}</div>
-</div>
-<div class="strada-score-right">
-<div class="strada-score-breakhead">Score breakdown</div>
-{rows_html}
-</div>
-</div>
-"""
-    )
+    """Render the two-card overall-quality + per-category banner."""
+    st.html(render_quality_banner_html(qs))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -254,7 +176,6 @@ with tab_verify:
         st.subheader("Select checks")
         st.caption("Pick a preset for common workflows or customize for full control.")
 
-        # Initialise state once per session
         if "active_bundle" not in st.session_state:
             _apply_bundle("full")
 
@@ -346,15 +267,8 @@ with tab_verify:
 
         banner_l, banner_r = st.columns([4, 1.3], vertical_alignment="center", gap="small")
         with banner_l:
-            checks_word = "check" if len(selected) == 1 else "checks"
             st.markdown(
-                f"""
-                <div class="strada-banner-text">
-                  <div class="lbl">READY TO RUN</div>
-                  <div class="ttl">{display_label} · {len(selected)} {checks_word} · est. {runtime_est}</div>
-                </div>
-                <div class="strada-banner-marker"></div>
-                """,
+                render_ready_banner_html(display_label, len(selected), runtime_est),
                 unsafe_allow_html=True,
             )
         with banner_r:
@@ -367,7 +281,6 @@ with tab_verify:
             )
 
         if run_clicked:
-            from strada.core.verify import run_checks
             from strada.io.reporters import write_text_report, write_csv_report
 
             with st.spinner("Running verification checks…"):
@@ -481,7 +394,6 @@ with tab_classify:
             with st.spinner("Classifying…"):
                 df_out, verif_results, multi_matches, stats = run_classification_pipeline(df_cls)
 
-            # Summary
             cykel = df_out[df_out["Micromobility_type"] != "N/A"]
             if len(cykel) > 0:
                 st.subheader("Classification Summary")
@@ -504,7 +416,6 @@ with tab_classify:
                         with st.expander(f"Details for {v.check_id}"):
                             st.dataframe(v.details, width='stretch', hide_index=True)
 
-            # Download
             csv_buf = io.BytesIO()
             df_out.to_csv(csv_buf, index=False, encoding="utf-8-sig")
             st.download_button(
@@ -551,11 +462,10 @@ with tab_preprocess:
 
     if excel_file:
         if st.button("▶ Convert", type="primary", key="btn_preprocess"):
-            from strada.io.readers import load_excel_sheet, save_csv
+            from strada.io.readers import load_excel_sheet
             from strada.core.preprocess import filter_by_year
 
             with st.spinner("Reading Excel file…"):
-                # Save uploaded file to temp location
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
                     tmp.write(excel_file.read())
                     tmp_path = Path(tmp.name)
@@ -569,7 +479,6 @@ with tab_preprocess:
 
             downloads = {}
 
-            # Full dataset
             buf_o = io.BytesIO()
             df_o.to_csv(buf_o, index=False, encoding="utf-8-sig")
             downloads["Olyckor.csv"] = buf_o.getvalue()
@@ -609,108 +518,9 @@ with tab_preprocess:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 with tab_about:
-    _generic_check_refs = [
-        ("G1", "Crash-ID consistency between datasets",     "critical"),
-        ("G2", "Crash-type (Olyckstyp) consistency",        "critical"),
-        ("G3", "Road-user category (Trafikantkategori)",    "critical"),
-        ("G4", "Crash timeline consistency (date & time)",  "warn"),
-        ("G5", "Location consistency (Län / Kommun)",       "warn"),
-        ("G6", "Duplicate person detection",                "warn"),
-    ]
-    _cycling_check_refs = [
-        ("C1", "Cykel singel crash validation",              "critical"),
-        ("C2", "Cykel presence in every crash",             "warn"),
-        ("C3", "Cykel crashes with only passengers",        "warn"),
-    ]
-
-    def _ref_row(rid: str, name: str, desc: str) -> str:
-        return (
-            '<div class="strada-refrow">'
-            f'<div class="strada-refrow-id">{rid}</div>'
-            f'<div><div class="strada-refrow-name">{name}</div>'
-            f'<div class="strada-refrow-desc">{desc}</div></div>'
-            '</div>'
-        )
-
-    def _checks_table(rows: list[tuple[str, str, str]]) -> str:
-        header = (
-            '<div class="strada-ct-hdr">'
-            '<div>ID</div><div>Check</div>'
-            '<div class="strada-ct-sev-col">Severity</div>'
-            '</div>'
-        )
-        body = "".join(
-            '<div class="strada-ct-row">'
-            f'<div class="strada-ct-id">{cid}</div>'
-            f'<div class="strada-ct-desc">{desc}</div>'
-            '<div class="strada-ct-sev-col">'
-            f'<span class="strada-pill strada-pill-{"red" if sev == "critical" else "amber"}">'
-            f'{sev.upper()}</span></div>'
-            '</div>'
-            for cid, desc, sev in rows
-        )
-        return f'<div class="strada-ct">{header}{body}</div>'
-
-    def _link_card(title: str, sub: str, href: str) -> str:
-        external = href.startswith("http")
-        target_attr = ' target="_blank" rel="noopener noreferrer"' if external else ""
-        return (
-            f'<a class="strada-linkcard" href="{href}"{target_attr}>'
-            f'<div class="strada-linkcard-title">{title}'
-            '<span class="strada-linkcard-arrow">↗</span></div>'
-            f'<div class="strada-linkcard-sub">{sub}</div>'
-            '</a>'
-        )
-
-    _core_tables = (
-        '<div class="strada-about-card">'
-        '<div class="strada-about-sectitle">Core tables</div>'
-        '<div class="strada-about-secsub">The two CSV exports this toolkit works with</div>'
-        '<div class="strada-refrow-list">'
-        f'{_ref_row("Olyckor",  "Crashes", "One row per crash event")}'
-        f'{_ref_row("Personer", "Persons", "One row per person involved")}'
-        '</div></div>'
-    )
-    _classify_card = (
-        '<div class="strada-about-card">'
-        '<div class="strada-about-sectitle">What gets added by Classify</div>'
-        '<div class="strada-about-secsub">New column appended to Personer</div>'
-        '<div class="strada-refrow-list">'
-        f'{_ref_row("Micromobility_type", "Vehicle classification", "E-scooter, E-bike, Conventional bicycle, …")}'
-        '</div></div>'
-    )
-
-    st.html(
-        f"""
-<div class="strada-about">
-<section>
-<div class="strada-about-eyebrow">About</div>
-<div class="strada-about-title">STRADA Data Quality Toolkit</div>
-<p class="strada-about-intro"><strong>STRADA</strong> (Swedish Traffic Accident Data Acquisition) is the national information system for road-traffic injuries managed by the Swedish Transport Agency (Transportstyrelsen). This toolkit provides automated data-quality checks plus micromobility classification helpers for STRADA exports.</p>
-</section>
-<div class="strada-about-grid2">
-{_core_tables}
-{_classify_card}
-</div>
-<div class="strada-about-card">
-<div class="strada-about-sectitle">Generic checks</div>
-<div class="strada-about-secsub">Apply to any STRADA analysis</div>
-{_checks_table(_generic_check_refs)}
-</div>
-<div class="strada-about-card">
-<div class="strada-about-sectitle">Cycling-specific checks</div>
-<div class="strada-about-secsub">Enable when analysing cykel datasets</div>
-{_checks_table(_cycling_check_refs)}
-</div>
-<div class="strada-about-card">
-<div class="strada-about-sectitle">Resources</div>
-<div class="strada-about-secsub">External references and documentation</div>
-<div class="strada-grid2">
-{_link_card("STRADA at Transportstyrelsen", "Official source documentation", "https://www.transportstyrelsen.se/strada")}
-{_link_card("GitHub repository", "Source code, issues, releases", "https://github.com/Rahul-Pi/strada-toolbox")}
-</div>
-<div class="strada-footer">v1.0.0 · Chalmers University of Technology · Vehicle Safety · last updated May 2026</div>
-</div>
-</div>
-"""
-    )
+    st.html(render_about_html(
+        _GENERIC_SPECS,
+        _CYCLING_SPECS,
+        version=__version__,
+        last_updated="May 2026",
+    ))
