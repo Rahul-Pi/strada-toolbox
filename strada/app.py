@@ -679,49 +679,142 @@ with tab_preprocess:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 with tab_about:
-    st.header("About STRADA Toolbox")
-    st.markdown("""
-**STRADA** (Swedish Traffic Accident Data Acquisition) is a national information
-system for road traffic injuries managed by the Swedish Transport Agency
-(Transportstyrelsen).
+    _generic_check_refs = [
+        ("G1", "Crash-ID consistency between datasets",     "critical"),
+        ("G2", "Crash-type (Olyckstyp) consistency",        "critical"),
+        ("G3", "Road-user category (Trafikantkategori)",    "critical"),
+        ("G4", "Crash timeline consistency (date & time)",  "warn"),
+        ("G5", "Location consistency (Län / Kommun)",       "warn"),
+        ("G6", "Duplicate person detection",                "warn"),
+    ]
+    _cycling_check_refs = [
+        ("C1", "G1 (cykel singel) crash validation",        "critical"),
+        ("C2", "Cykel presence in every crash",             "warn"),
+        ("C3", "Cykel crashes with only passengers",        "warn"),
+    ]
 
-### What this toolbox does
+    def _ref_row(rid: str, name: str, desc: str) -> str:
+        return (
+            '<div class="strada-refrow">'
+            f'<div class="strada-refrow-id">{rid}</div>'
+            f'<div><div class="strada-refrow-name">{name}</div>'
+            f'<div class="strada-refrow-desc">{desc}</div></div>'
+            '</div>'
+        )
 
-This toolkit provides automated data-quality checks for the two core STRADA
-tables:
+    def _checks_table(rows: list[tuple[str, str, str]]) -> str:
+        header = (
+            '<div class="strada-ct-hdr">'
+            '<div>ID</div><div>Check</div>'
+            '<div class="strada-ct-sev-col">Severity</div>'
+            '</div>'
+        )
+        body = "".join(
+            '<div class="strada-ct-row">'
+            f'<div class="strada-ct-id">{cid}</div>'
+            f'<div class="strada-ct-desc">{desc}</div>'
+            '<div class="strada-ct-sev-col">'
+            f'<span class="strada-pill strada-pill-{"red" if sev == "critical" else "amber"}">'
+            f'{sev.upper()}</span></div>'
+            '</div>'
+            for cid, desc, sev in rows
+        )
+        return f'<div class="strada-ct">{header}{body}</div>'
 
-| Table | Description |
-|-------|-------------|
-| **Olyckor** (Crashes) | One row per crash event |
-| **Personer** (Persons) | One row per person involved in a crash |
+    def _link_card(title: str, sub: str, href: str) -> str:
+        external = href.startswith("http")
+        target_attr = ' target="_blank" rel="noopener noreferrer"' if external else ""
+        return (
+            f'<a class="strada-linkcard" href="{href}"{target_attr}>'
+            f'<div class="strada-linkcard-title">{title}'
+            '<span class="strada-linkcard-arrow">↗</span></div>'
+            f'<div class="strada-linkcard-sub">{sub}</div>'
+            '</a>'
+        )
 
-### Available checks
+    _core_tables = (
+        '<div class="strada-about-card">'
+        '<div class="strada-about-sectitle">Core tables</div>'
+        '<div class="strada-about-secsub">The two CSV exports this toolkit works with</div>'
+        '<div class="strada-refrow-list">'
+        f'{_ref_row("Olyckor",  "Crashes", "One row per crash event")}'
+        f'{_ref_row("Personer", "Persons", "One row per person involved")}'
+        '</div></div>'
+    )
+    _classify_card = (
+        '<div class="strada-about-card">'
+        '<div class="strada-about-sectitle">What gets added by Classify</div>'
+        '<div class="strada-about-secsub">New column appended to Personer</div>'
+        '<div class="strada-refrow-list">'
+        f'{_ref_row("Micromobility_type", "Vehicle classification", "E-scooter, E-bike, Conventional bicycle, …")}'
+        '</div></div>'
+    )
 
-#### Generic (apply to any STRADA analysis)
-
-| ID | Check |
-|----|-------|
-| **G1** | Crash-ID consistency between datasets |
-| **G2** | Crash-type (Olyckstyp) consistency |
-| **G3** | Road-user category (Trafikantkategori) consistency |
-| **G4** | Crash timeline consistency (date & time) |
-| **G5** | Location consistency (Län / Kommun) |
-| **G6** | Duplicate person detection (all road-user types) |
-
-#### Cycling-specific (enable with `--cycling` flag)
-
-| ID | Check |
-|----|-------|
-| **C1** | G1 (cykel singel) crash validation |
-| **C2** | Cykel presence in every crash |
-| **C3** | Cykel crashes with only passengers (no driver) |
-
-### Classification (cycling analysis)
-
-The **Classify** tab / `strada classify` command adds:
-- **Micromobility_type** — E-scooter, E-bike, Conventional bicycle, etc.
-
-### Links
-
-- [STRADA — Transportstyrelsen](https://www.transportstyrelsen.se/strada)
-""")
+    st.html(
+        f"""
+<style>
+.strada-about {{ display: flex; flex-direction: column; gap: 22px; max-width: 1100px; padding: 8px 0 32px 0; }}
+.strada-about-eyebrow {{ font-size: 0.72em; color: rgba(127, 127, 127, 0.85); font-weight: 500; letter-spacing: 1.5px; text-transform: uppercase; }}
+.strada-about-title {{ font-size: 1.7em; font-weight: 600; color: var(--text-color); letter-spacing: -0.3px; margin: 4px 0 0 0; padding: 0; }}
+.strada-about-intro {{ font-size: 0.95em; color: rgba(127, 127, 127, 0.95); margin: 10px 0 0 0; line-height: 1.6; }}
+.strada-about-intro strong {{ color: var(--text-color); }}
+.strada-about-grid2 {{ display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }}
+.strada-about-card {{ background: var(--secondary-background-color); border: 1px solid rgba(127, 127, 127, 0.18); border-radius: 12px; padding: 22px; }}
+.strada-about-sectitle {{ font-size: 1.05em; font-weight: 600; color: var(--text-color); }}
+.strada-about-secsub {{ font-size: 0.82em; color: rgba(127, 127, 127, 0.8); margin: 2px 0 14px 0; }}
+.strada-refrow-list {{ display: flex; flex-direction: column; gap: 10px; }}
+.strada-refrow {{ padding: 12px 14px; border: 1px solid rgba(127, 127, 127, 0.18); border-radius: 6px; display: grid; grid-template-columns: 180px 1fr; align-items: center; gap: 14px; }}
+.strada-refrow-id {{ font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.78em; font-weight: 600; background: #0d2c4a; color: #fff; padding: 3px 8px; border-radius: 4px; justify-self: start; }}
+.strada-refrow-name {{ font-size: 0.88em; font-weight: 500; color: var(--text-color); }}
+.strada-refrow-desc {{ font-size: 0.78em; color: rgba(127, 127, 127, 0.85); margin-top: 2px; }}
+.strada-ct {{ border: 1px solid rgba(127, 127, 127, 0.18); border-radius: 8px; overflow: hidden; }}
+.strada-ct-hdr {{ display: grid; grid-template-columns: 60px 1fr 110px; padding: 10px 16px; background: rgba(127, 127, 127, 0.08); font-size: 0.68em; letter-spacing: 0.8px; text-transform: uppercase; color: rgba(127, 127, 127, 0.85); font-weight: 600; border-bottom: 1px solid rgba(127, 127, 127, 0.18); }}
+.strada-ct-hdr .strada-ct-sev-col {{ text-align: right; }}
+.strada-ct-row {{ display: grid; grid-template-columns: 60px 1fr 110px; padding: 11px 16px; align-items: center; }}
+.strada-ct-row + .strada-ct-row {{ border-top: 1px solid rgba(127, 127, 127, 0.12); }}
+.strada-ct-id {{ font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.82em; color: rgba(127, 127, 127, 0.95); font-weight: 600; }}
+.strada-ct-desc {{ font-size: 0.88em; color: var(--text-color); }}
+.strada-ct-sev-col {{ text-align: right; }}
+.strada-pill {{ display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.68em; font-weight: 700; letter-spacing: 0.4px; }}
+.strada-pill-red {{ background: rgba(220, 38, 38, 0.16); color: #b91c1c; }}
+.strada-pill-amber {{ background: rgba(200, 144, 32, 0.20); color: #8a5a00; }}
+.strada-grid2 {{ display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }}
+.strada-linkcard {{ display: block; padding: 14px; border: 1px solid rgba(127, 127, 127, 0.18); border-radius: 8px; text-decoration: none; transition: border-color 0.12s ease, transform 0.12s ease; }}
+.strada-linkcard:hover {{ border-color: rgba(10, 37, 64, 0.45); transform: translateY(-1px); }}
+.strada-linkcard-title {{ font-size: 0.92em; font-weight: 600; color: #0a5fb4; display: flex; align-items: center; justify-content: space-between; }}
+.strada-linkcard-arrow {{ font-size: 0.78em; color: rgba(127, 127, 127, 0.7); }}
+.strada-linkcard-sub {{ font-size: 0.82em; color: rgba(127, 127, 127, 0.85); margin-top: 4px; }}
+.strada-footer {{ margin-top: 18px; padding-top: 16px; border-top: 1px solid rgba(127, 127, 127, 0.18); font-size: 0.78em; color: rgba(127, 127, 127, 0.8); }}
+</style>
+<div class="strada-about">
+<section>
+<div class="strada-about-eyebrow">About</div>
+<div class="strada-about-title">STRADA Data Quality Toolkit</div>
+<p class="strada-about-intro"><strong>STRADA</strong> (Swedish Traffic Accident Data Acquisition) is the national information system for road-traffic injuries managed by the Swedish Transport Agency (Transportstyrelsen). This toolkit provides automated data-quality checks plus micromobility classification helpers for STRADA exports.</p>
+</section>
+<div class="strada-about-grid2">
+{_core_tables}
+{_classify_card}
+</div>
+<div class="strada-about-card">
+<div class="strada-about-sectitle">Generic checks</div>
+<div class="strada-about-secsub">Apply to any STRADA analysis</div>
+{_checks_table(_generic_check_refs)}
+</div>
+<div class="strada-about-card">
+<div class="strada-about-sectitle">Cycling-specific checks</div>
+<div class="strada-about-secsub">Enable when analysing cykel datasets</div>
+{_checks_table(_cycling_check_refs)}
+</div>
+<div class="strada-about-card">
+<div class="strada-about-sectitle">Resources</div>
+<div class="strada-about-secsub">External references and documentation</div>
+<div class="strada-grid2">
+{_link_card("STRADA at Transportstyrelsen", "Official source documentation", "https://www.transportstyrelsen.se/strada")}
+{_link_card("GitHub repository", "Source code, issues, releases", "https://github.com/Rahul-Pi/strada-toolbox")}
+</div>
+<div class="strada-footer">v1.0.0 · Chalmers University of Technology · Vehicle Safety · last updated May 2026</div>
+</div>
+</div>
+"""
+    )
