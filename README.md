@@ -264,14 +264,14 @@ Documentation and links.
 
 These checks apply to **any** STRADA analysis, regardless of road-user type.
 
-#### G1 — Crash-ID Consistency
+#### G1 — Crash-ID inconsistency
 
 Verifies that every `Olycksnummer` in the Olyckor dataset has at least one matching entry in the Personer dataset, and vice versa.
 
 - **Why it matters:** Missing crash IDs indicate data extraction issues or incomplete joins.
 - **What is flagged:** IDs that exist in one dataset but not the other.
 
-#### G2 — Crash-Type (Olyckstyp) Consistency
+#### G2 — Crash-Type (Olyckstyp) inconsistency
 
 Two sub-checks:
 - **G2.1:** Checks for missing `Olyckstyp` values in both datasets.
@@ -279,7 +279,7 @@ Two sub-checks:
 
 - **Why it matters:** Inconsistent crash types between datasets may indicate data entry errors or misaligned records.
 
-#### G3 — Road-User Category (Trafikantkategori) Consistency
+#### G3 — Road-User Category (Trafikantkategori) inconsistency
 
 Four sub-checks on the Personer dataset:
 - **G3.1:** At least one of the three category columns (`Trafikantkategori (P) - Undergrupp`, `Trafikantkategori (S) - Undergrupp`, `Sammanvägd Trafikantkategori - Undergrupp`) must be filled.
@@ -289,7 +289,7 @@ Four sub-checks on the Personer dataset:
 
 - **Why it matters:** The `Sammanvägd` (combined) category is derived from P (Police) and S (Hospital) reports. Discrepancies may indicate classification errors.
 
-#### G4 — Timeline Consistency
+#### G4 — Timeline inconsistency
 
 For each crash with multiple person entries, verifies that:
 1. The date (`År`, `Månad`, `Dag`) is the same across all entries.
@@ -299,7 +299,7 @@ Date mismatches are reported first, followed by time mismatches sorted by the ma
 
 - **Why it matters:** All persons in the same crash should have the same date and time.
 
-#### G5 — Location Consistency (Län / Kommun)
+#### G5 — Location inconsistency (Län / Kommun)
 
 For each crash with multiple person entries, verifies that `Län` (county) and `Kommun` (municipality) are consistent.
 
@@ -321,7 +321,7 @@ If the same combination of all these values appears in multiple different crash 
 
 These checks are relevant when the dataset has been filtered to cycling / micromobility crashes. Enable them with `--cycling`.
 
-#### C1 — Cykel Singel Crash Validation
+#### C1 — Single Cyclist Crash Validation
 
 For crashes whose STRADA *Olyckstyp* code is `G1 (cykel singel)` — the
 single-cyclist crash-type, unrelated to our check ID `G1`:
@@ -329,11 +329,11 @@ single-cyclist crash-type, unrelated to our check ID `G1`:
 - That entry should have `Sammanvägd Trafikantkategori - Huvudgrupp == "Cykel"`.
 - When multiple persons exist, the count of passengers (identified by `"Passagerare"` in role columns) is reported.
 
-#### C2 — Cykel Presence
+#### C2 — Cyclist Presence in every crash
 
 Verifies that every crash has at least one person with `Huvudgrupp == "Cykel"`. Relevant only when the dataset was extracted as a cycling dataset.
 
-#### C3 — Cykel Passengers Only
+#### C3 — Cyclist (Driver) Missing in Crash
 
 Flags crashes where **all** Cykel entries are passengers (no driver/cyclist). This can indicate a data-entry issue where the cyclist is missing from the record.
 

@@ -59,11 +59,11 @@ from strada.io.reporters import VerificationResult
 # the split in `_status_for`.
 
 CHECK_SEVERITY: dict[str, str] = {
-    "G1": "critical",       # crash-ID consistency between datasets
-    "G2": "critical",       # crash-type consistency
-    "G3": "critical",       # road-user category consistency
-    "G4": "non-critical",   # timeline consistency
-    "G5": "non-critical",   # location consistency
+    "G1": "critical",       # Crash-ID inconsistency between datasets
+    "G2": "critical",       # Crash-type inconsistency
+    "G3": "critical",       # road-user category inconsistency
+    "G4": "non-critical",   # timeline inconsistency
+    "G5": "non-critical",   # location inconsistency
     "G6": "non-critical",   # duplicate person detection
     "C1": "critical",       # cykel singel (STRADA Olyckstyp G1) validation
     "C2": "non-critical",   # cykel presence
@@ -99,7 +99,7 @@ def check_g1_id_consistency(
     df_olyckor: pd.DataFrame,
     df_personer: pd.DataFrame,
 ) -> VerificationResult:
-    """**G1 — Crash-ID consistency** between Olyckor and Personer.
+    """**G1 — Crash-ID inconsistency** between Olyckor and Personer.
 
     Verifies that every ``Olycksnummer`` in Olyckor has at least one
     corresponding row in Personer and vice-versa.
@@ -247,7 +247,7 @@ def check_g3_road_user_category(
     details31 = all_missing[[COL_CRASH_ID]].drop_duplicates() if n31 > 0 else None
     sub_results.append(VerificationResult(
         check_id="G3.1",
-        check_name="All road-user category fields blank (P, S, Sammanvägd)",
+        check_name="All road-user category fields blank (Police, Hospital, Combined (Sammanvägd))",
         status=_status_for("G3.1", n31),
         summary=f"{'✓ All persons have at least one Trafikantkategori column filled' if n31 == 0 else f'⚠ {n31} persons with all three columns missing'}",
         issue_count=n31,
@@ -300,7 +300,7 @@ def check_g3_road_user_category(
     n33 = len(mismatch_33)
     sub_results.append(VerificationResult(
         check_id="G3.3",
-        check_name="Combined (Sammanvägd) disagrees with the filled P/S source",
+        check_name="Combined category (Sammanvägd) disagrees with the filled P/S source",
         status=_status_for("G3.3", n33),
         summary=(
             "✓ All filled P/S categories match Sammanvägd"
@@ -330,7 +330,7 @@ def check_g3_road_user_category(
     n34 = len(mismatch_34)
     sub_results.append(VerificationResult(
         check_id="G3.4",
-        check_name="Combined (Sammanvägd) matches neither P nor S (both filled)",
+        check_name="Combined category (Sammanvägd) matches neither P nor S (both filled)",
         status=_status_for("G3.4", n34),
         summary=(
             "✓ At least one of P/S matches Sammanvägd in all cases"
