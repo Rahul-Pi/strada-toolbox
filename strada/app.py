@@ -295,7 +295,11 @@ with tab_verify:
             st.subheader("Results")
 
             # ── Quality-score banner ──────────────────────────────────────
-            quality = compute_quality_score(results)
+            quality = compute_quality_score(
+                results,
+                n_olyckor=len(df_olyckor),
+                n_personer=len(df_personer),
+            )
             _render_quality_banner(quality)
 
             summary_rows = []

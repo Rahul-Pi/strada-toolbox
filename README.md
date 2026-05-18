@@ -19,13 +19,14 @@ STRADA is a national information system for road traffic injuries managed by the
 5. [Verification Checks Reference](#verification-checks-reference)
    - [Generic Checks (G1–G6)](#generic-checks-g1g6)
    - [Cycling-Specific Checks (C1–C3)](#cycling-specific-checks-c1c3)
-6. [Micromobility Classification](#micromobility-classification)
-7. [Report Formats](#report-formats)
-8. [Project Structure](#project-structure)
-9. [Configuration & Customisation](#configuration--customisation)
-10. [Workflow Diagram](#workflow-diagram)
-11. [Contributing](#contributing)
-12. [License](#license)
+6. [Quality Scoring](#quality-scoring)
+7. [Micromobility Classification](#micromobility-classification)
+8. [Report Formats](#report-formats)
+9. [Project Structure](#project-structure)
+10. [Configuration & Customisation](#configuration--customisation)
+11. [Workflow Diagram](#workflow-diagram)
+12. [Contributing](#contributing)
+13. [License](#license)
 
 ---
 
@@ -336,6 +337,82 @@ Verifies that every crash has at least one person with `Huvudgrupp == "Cykel"`. 
 #### C3 — Cyclist (Driver) Missing in Crash
 
 Flags crashes where **all** Cykel entries are passengers (no driver/cyclist). This can indicate a data-entry issue where the cyclist is missing from the record.
+
+---
+## Quality Scoring
+
+The toolbox produces a single **0–100 quality score** with a letter grade (A/B/C/D/F) plus a per-category breakdown. The score is shown in the Verify tab and in the text report.
+
+### How the overall score is calculated
+
+The score starts at 100 and accumulates a deduction from every failing check (a check is "failing" when it found ≥ 1 issue). Each failing check contributes a severity-based base penalty plus a rate-dependent term:
+
+| Severity     | Per-failing-check deduction       |
+|--------------|-----------------------------------|
+| critical     | `10 + 30 · √rate`                 |
+| non-critical | `5  + 30 · √rate`                 |
+
+where `rate = issue_count / denominator`. The denominator is:
+- `len(df_olyckor)`  for per-crash checks (G1, G2, G4, G5, C1, C2, C3)
+- `len(df_personer)` for per-person checks (G3, G6)
+
+Then:
+
+```
+overall = max(0, round(100 − Σ deductions))
+```
+
+This means:
+- **Each failing critical check costs ~10 points**, so the number of failing criticals dominates the score.
+- **Each failing non-critical check costs ~5 points** — meaningful but not catastrophic on its own.
+- **The rate term grows sub-linearly (√rate)**, so the score stays comparable across datasets of different sizes — the same issue *rate* yields the same deduction whether the dataset has 1,000 or 100,000 rows.
+- Checks that were **not run** contribute nothing (no penalty, no credit).
+
+### Grade letter
+
+The numeric score maps to a grade via fixed thresholds:
+
+| Score range | Grade | Label        |
+|-------------|-------|--------------|
+| ≥ 90        | A     | EXCELLENT    |
+| 75–89       | B     | ACCEPTABLE   |
+| 60–74       | C     | NEEDS WORK   |
+| 40–59       | D     | POOR         |
+| < 40        | F     | FAILING      |
+
+### Score breakdown (per-category aggregation)
+
+Alongside the overall score, the dashboard shows a **Score breakdown** by category. Checks are grouped into four categories:
+
+| Category               | Checks    |
+|------------------------|-----------|
+| Identifier integrity   | G1, G2, G3 |
+| Temporal & spatial     | G4, G5    |
+| Duplicates             | G6        |
+| Cycling structure      | C1, C2, C3 |
+
+For each category, the same additive deduction formula is applied to *only* that category's checks:
+
+```
+cat_score = max(0, round(100 − Σ (deductions of checks in this category)))
+```
+
+When a category was only **partially run** (e.g. Quick Scan runs G1, G2, G3 but skips G4–G6), the deduction is up-scaled by `len(all_checks_in_category) / len(checks_that_ran)` before subtracting from 100, so partial coverage doesn't inflate the category score. Categories where **no** checks ran are shown as "— · not run".
+
+The category bars are a diagnostic view — they help locate where issues concentrate (e.g. identifier integrity vs. cycling structure) — and are computed independently of the overall score.
+
+### Tuning the penalties
+
+All four scoring constants live at the top of the `QUALITY SCORING` block in [strada/core/verify.py](strada/core/verify.py):
+
+```python
+CRITICAL_BASE_PENALTY = 10.0
+CRITICAL_RATE_PENALTY = 30.0
+NONCRIT_BASE_PENALTY  = 5.0
+NONCRIT_RATE_PENALTY  = 30.0
+```
+
+Adjust these in one place to re-calibrate how harshly the score treats failing checks; no other code needs to change.
 
 ---
 

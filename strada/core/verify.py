@@ -19,6 +19,7 @@ references) derives from this one list.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Callable, Literal, Optional
 
@@ -61,6 +62,7 @@ class CheckSpec:
     category: str                                 # CATEGORY_META key
     family: Literal["generic", "cycling"]
     func: CheckFunc
+    denominator: Literal["olyckor", "personer"] = "olyckor"
 
 
 CHECK_SPECS: list[CheckSpec] = [
@@ -72,6 +74,7 @@ CHECK_SPECS: list[CheckSpec] = [
         category="identifier",
         family="generic",
         func=check_g1_id_consistency,
+        denominator="olyckor",
     ),
     CheckSpec(
         id="G2",
@@ -81,6 +84,7 @@ CHECK_SPECS: list[CheckSpec] = [
         category="identifier",
         family="generic",
         func=check_g2_crash_type,
+        denominator="olyckor",
     ),
     CheckSpec(
         id="G3",
@@ -90,6 +94,7 @@ CHECK_SPECS: list[CheckSpec] = [
         category="identifier",
         family="generic",
         func=check_g3_road_user_category,
+        denominator="personer",
     ),
     CheckSpec(
         id="G4",
@@ -99,6 +104,7 @@ CHECK_SPECS: list[CheckSpec] = [
         category="temporal_spatial",
         family="generic",
         func=check_g4_timeline,
+        denominator="olyckor",
     ),
     CheckSpec(
         id="G5",
@@ -108,6 +114,7 @@ CHECK_SPECS: list[CheckSpec] = [
         category="temporal_spatial",
         family="generic",
         func=check_g5_location,
+        denominator="olyckor",
     ),
     CheckSpec(
         id="G6",
@@ -117,6 +124,7 @@ CHECK_SPECS: list[CheckSpec] = [
         category="duplicates",
         family="generic",
         func=check_g6_duplicate_persons,
+        denominator="personer",
     ),
     CheckSpec(
         id="C1",
@@ -126,6 +134,7 @@ CHECK_SPECS: list[CheckSpec] = [
         category="cycling_structure",
         family="cycling",
         func=check_c1_cykel_singel,
+        denominator="olyckor",  # approx: true scope is single-cyclist crashes only
     ),
     CheckSpec(
         id="C2",
@@ -135,6 +144,7 @@ CHECK_SPECS: list[CheckSpec] = [
         category="cycling_structure",
         family="cycling",
         func=check_c2_cykel_presence,
+        denominator="olyckor",
     ),
     CheckSpec(
         id="C3",
@@ -144,6 +154,7 @@ CHECK_SPECS: list[CheckSpec] = [
         category="cycling_structure",
         family="cycling",
         func=check_c3_cykel_passengers_only,
+        denominator="olyckor",  # approx: true scope is cyclist crashes only
     ),
 ]
 
@@ -228,25 +239,33 @@ def run_checks(
 # ║  QUALITY SCORING                                                          ║
 # ╚═══════════════════════════════════════════════════════════════════════════╝
 #
-# Scoring model
-# -------------
-# Start at 100 and deduct for each check that has issues.
+# Scoring model — additive per-failing-check penalties
+# ----------------------------------------------------
+# Each failing check (issue_count > 0) deducts a severity-based base penalty
+# plus a rate-dependent term:
 #
-#   deduction = BASE_PENALTY + min(issue_count * PER_ISSUE_RATE, MAX_CAP)
-#   if critical: deduction *= CRITICAL_MULT
+#   critical:      deduction = CRITICAL_BASE_PENALTY + CRITICAL_RATE_PENALTY * sqrt(rate)
+#   non-critical:  deduction = NONCRIT_BASE_PENALTY  + NONCRIT_RATE_PENALTY  * sqrt(rate)
 #
-# Sub-checks do NOT get an individual base_penalty — their issues are already
+# Deductions accumulate: overall = max(0, 100 - sum of all deductions).
+#
+# This means "more failing checks → lower score" holds, and the rate term
+# keeps scores comparable across datasets of different sizes (the same
+# issue rate yields the same deduction regardless of total row count).
+#
+# Sub-checks do NOT get an individual deduction — their issues are already
 # rolled up into the parent's issue_count by the check functions.
 #
 # Checks that were not run are excluded entirely (no penalty, no credit).
-# Category sub-scores use the same formula, applied independently to the
-# checks in each category.
+# Category sub-scores apply the same additive deduction, restricted to the
+# category's checks, with an up-scaling factor when only a subset ran.
 
 
-BASE_PENALTY   = 3.0
-PER_ISSUE_RATE = 0.02
-MAX_CAP        = 12.0
-CRITICAL_MULT  = 2.0
+# Tunable scoring constants — adjust here after observing real datasets.
+CRITICAL_BASE_PENALTY = 10.0   # flat deduction for any failing critical check
+CRITICAL_RATE_PENALTY = 30.0   # additional rate-dependent deduction for critical checks
+NONCRIT_BASE_PENALTY  = 5.0    # flat deduction for any failing non-critical check
+NONCRIT_RATE_PENALTY  = 30.0   # additional rate-dependent deduction for non-critical checks
 
 
 GRADE_THRESHOLDS: list[tuple[int, str, str]] = [
@@ -286,49 +305,70 @@ class QualityScore:
     summary: str = ""
 
 
-def _deduction_for(check_id: str, issue_count: int) -> float:
-    """Deduction for a single parent-level check."""
-    if issue_count == 0:
+#: Spec lookup by id — built once, used by the scoring helpers below.
+_SPEC_BY_ID: dict[str, CheckSpec] = {s.id: s for s in CHECK_SPECS}
+
+
+def _denominator_for(spec: CheckSpec, n_olyckor: int, n_personer: int) -> int:
+    return n_olyckor if spec.denominator == "olyckor" else n_personer
+
+
+def _deduction_for(spec: CheckSpec, issue_count: int, denominator: int) -> float:
+    """Deduction for a single failing check; 0 if it passes."""
+    if denominator <= 0 or issue_count <= 0:
         return 0.0
-    raw = BASE_PENALTY + min(issue_count * PER_ISSUE_RATE, MAX_CAP)
-    if CHECK_SEVERITY.get(check_id) == "critical":
-        raw *= CRITICAL_MULT
-    return raw
+    rate = min(issue_count / denominator, 1.0)
+    if spec.severity == "critical":
+        return CRITICAL_BASE_PENALTY + CRITICAL_RATE_PENALTY * math.sqrt(rate)
+    return NONCRIT_BASE_PENALTY + NONCRIT_RATE_PENALTY * math.sqrt(rate)
 
 
-def compute_quality_score(results: list[VerificationResult]) -> QualityScore:
+def compute_quality_score(
+    results: list[VerificationResult],
+    *,
+    n_olyckor: int,
+    n_personer: int,
+) -> QualityScore:
     """Compute overall quality score and per-category breakdown.
 
     ``results`` is the list of parent-level results returned by ``run_checks``.
     Sub-results are read from each result's ``sub_results`` list; their issue
     counts are already rolled up into the parent.
+
+    ``n_olyckor`` / ``n_personer`` are the dataset row counts; they form the
+    denominator for the rate-based per-check scoring.
     """
     result_map: dict[str, VerificationResult] = {r.check_id: r for r in results}
     ran_ids = set(result_map.keys())
 
-    # ── Overall score ──
-    total_deduction = 0.0
+    # ── Per-check deductions ──
+    deductions: dict[str, float] = {}
     critical_count = 0
     warning_count = 0
     pass_count = 0
     critical_failed = 0
 
     for r in results:
-        ded = _deduction_for(r.check_id, r.issue_count)
-        total_deduction += ded
+        spec = _SPEC_BY_ID.get(r.check_id)
+        if spec is None:
+            continue
+        denom = _denominator_for(spec, n_olyckor, n_personer)
+        deductions[r.check_id] = _deduction_for(spec, r.issue_count, denom)
 
         if r.issue_count == 0:
             pass_count += 1
-        elif CHECK_SEVERITY.get(r.check_id) == "critical":
+        elif spec.severity == "critical":
             critical_count += r.issue_count
             critical_failed += 1
         else:
             warning_count += r.issue_count
 
+    # ── Overall: straight accumulation of deductions ──
+    total_deduction = sum(deductions.values())
     overall = max(0, min(100, round(100 - total_deduction)))
     grade, grade_label = _grade_for(overall)
 
-    # ── Category sub-scores ──
+    # ── Category sub-scores (same additive deduction, restricted) ──
     categories: list[CategoryScore] = []
     for cat_name, cat_info in SCORE_CATEGORIES.items():
         cat_check_ids = cat_info["checks"]
@@ -343,8 +383,8 @@ def compute_quality_score(results: list[VerificationResult]) -> QualityScore:
             ))
             continue
 
-        cat_ded = sum(_deduction_for(cid, result_map[cid].issue_count) for cid in cat_ran)
-        # Scale if only a subset of checks in the category were run
+        cat_ded = sum(deductions[cid] for cid in cat_ran)
+        # Up-scale deduction if only a subset of category checks ran
         scale = len(cat_check_ids) / len(cat_ran) if len(cat_ran) < len(cat_check_ids) else 1.0
         cat_score = max(0, min(100, round(100 - cat_ded * scale)))
 
