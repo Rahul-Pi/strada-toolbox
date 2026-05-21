@@ -268,20 +268,20 @@ NONCRIT_BASE_PENALTY  = 5.0    # flat deduction for any failing non-critical che
 NONCRIT_RATE_PENALTY  = 30.0   # additional rate-dependent deduction for non-critical checks
 
 
-GRADE_THRESHOLDS: list[tuple[int, str, str]] = [
-    (90, "A", "EXCELLENT"),
-    (75, "B", "ACCEPTABLE"),
-    (60, "C", "NEEDS WORK"),
-    (40, "D", "POOR"),
-    ( 0, "F", "FAILING"),
+GRADE_THRESHOLDS: list[tuple[int, int, str]] = [
+    (90, 5, "EXCELLENT"),
+    (75, 4, "ACCEPTABLE"),
+    (60, 3, "NEEDS WORK"),
+    (40, 2, "POOR"),
+    ( 0, 0, "FAILING"),
 ]
 
 
-def _grade_for(score: int) -> tuple[str, str]:
-    for threshold, letter, label in GRADE_THRESHOLDS:
+def _grade_for(score: int) -> tuple[int, str]:
+    for threshold, stars, label in GRADE_THRESHOLDS:
         if score >= threshold:
-            return letter, label
-    return "F", "FAILING"
+            return stars, label
+    return 0, "FAILING"
 
 
 @dataclass
@@ -295,7 +295,7 @@ class CategoryScore:
 @dataclass
 class QualityScore:
     overall: int                  # 0-100
-    grade: str                    # A/B/C/D/F
+    grade: int                    # star rating 0-5
     grade_label: str              # EXCELLENT / ACCEPTABLE / ...
     categories: list[CategoryScore] = field(default_factory=list)
     critical_count: int = 0       # total critical issues

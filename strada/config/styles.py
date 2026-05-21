@@ -34,8 +34,7 @@ _CSS_QUALITY_BANNER = """
 .strada-score-right { background: var(--secondary-background-color); border: 1px solid rgba(127, 127, 127, 0.2); border-radius: 12px; padding: 24px 28px; color: var(--text-color); }
 .strada-score-label { font-size: 0.72em; color: #8ea4be; letter-spacing: 1.8px; font-weight: 700; }
 .strada-score-num { margin: 10px 0 18px 0; line-height: 1; }
-.strada-score-big { font-size: 4.6em; font-weight: 300; color: #fff; }
-.strada-score-tot { font-size: 1.25em; color: #8ea4be; margin-left: 4px; }
+.strada-stars { display: inline-flex; align-items: center; vertical-align: middle; line-height: 1; margin-left: 4px; letter-spacing: 2px; }
 .strada-grade-pill { display: inline-block; padding: 6px 14px; border-radius: 20px; font-size: 0.78em; font-weight: 700; letter-spacing: 0.5px; }
 .strada-score-summary { margin-top: 18px; font-size: 0.92em; color: #cdd9e5; line-height: 1.5; }
 .strada-score-breakhead { font-size: 1.05em; font-weight: 600; margin-bottom: 18px; color: var(--text-color); }

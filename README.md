@@ -2,7 +2,7 @@
 
 **Data quality assessment toolkit for STRADA (Swedish Traffic Accident Data Acquisition) datasets.**
 
-STRADA is a national information system for road traffic injuries managed by the Swedish Transport Agency (Transportstyrelsen). This toolbox automates data-quality checks for the two core STRADA tables — **Olyckor** (Crashes) and **Personer** (Persons) — and provides both a **command-line interface** and a **web dashboard** so that researchers with any level of coding experience can use it.
+STRADA is a national information system for road traffic injuries managed by the Swedish Transport Agency (Transportstyrelsen). This toolbox automates data-quality checks for the two core STRADA tables — **Olyckor** (Crashes) and **Personer** (Persons) — and ships as a **web dashboard** for interactive use, with a **command-line interface** available for scripting and automation. No coding experience is required to use the dashboard.
 
 ---
 
@@ -10,12 +10,12 @@ STRADA is a national information system for road traffic injuries managed by the
 
 1. [Quick Start](#quick-start)
 2. [Installation](#installation)
-3. [Usage — Command-Line Interface (CLI)](#usage--command-line-interface-cli)
+3. [Usage — Web Dashboard](#usage--web-dashboard)
+4. [Usage — Command-Line Interface (CLI)](#usage--command-line-interface-cli)
    - [preprocess](#1-preprocess)
    - [verify](#2-verify)
    - [classify](#3-classify-cycling-specific)
    - [web](#4-web-dashboard)
-4. [Usage — Web Dashboard](#usage--web-dashboard)
 5. [Verification Checks Reference](#verification-checks-reference)
    - [Generic Checks (G1–G6)](#generic-checks-g1g6)
    - [Cycling-Specific Checks (C1–C3)](#cycling-specific-checks-c1c3)
@@ -33,23 +33,18 @@ STRADA is a national information system for road traffic injuries managed by the
 ## Quick Start
 
 ```bash
-# 1. Install
+# 1. Install (with dashboard support)
 cd STRADA_toolbox
-pip install .
+pip install ".[web]"
 
-# 2. Run all generic data-quality checks
-strada verify \
-    --olyckor path/to/Olyckor.csv \
-    --personer path/to/Personer.csv
+# 2. Launch the web dashboard — upload CSVs, pick checks, download reports
+strada web
 
-# 3. Include cycling-specific checks
+# 3. Or, for scripted / automated runs, use the CLI
 strada verify \
     --olyckor path/to/Olyckor.csv \
     --personer path/to/Personer.csv \
     --cycling
-
-# 4. Or launch the web dashboard (no terminal needed after this)
-strada web
 ```
 
 ---
@@ -102,9 +97,48 @@ pip install -r requirements.txt
 
 ---
 
+## Usage — Web Dashboard
+
+The web dashboard is the recommended way to use the toolbox. It provides every feature through a graphical interface, no terminal required after launch.
+
+![STRADA dashboard — Verify tab](assets/dashboard.png)
+
+### Launching
+
+```bash
+strada web
+```
+
+This opens your browser at `http://localhost:8501` with four tabs:
+
+### Tab: 🔍 Verify
+1. Upload your Olyckor and Personer CSV files
+2. Select which checks to run (checkboxes for each G1–G6 and C1–C3)
+3. Click **▶ Run selected checks**
+4. Browse results interactively in expandable tables
+5. Download text or CSV reports
+
+### Tab: 🚲 Classify (Cycling)
+1. Upload your Personer CSV
+2. Click **▶ Run classification**
+3. View the micromobility type distribution
+4. Download the classified dataset
+
+### Tab: 📥 Preprocess
+1. Upload a STRADA Excel workbook
+2. Optionally set a year range filter
+3. Click **▶ Convert**
+4. Download the resulting CSV files
+
+### Tab: ℹ️ About
+Documentation and links.
+
+---
+
 ## Usage — Command-Line Interface (CLI)
 
-After installation, the `strada` command is available in your terminal.
+The CLI exposes the same functionality as the dashboard and is intended for scripting, batch processing, and CI pipelines. For interactive analysis, prefer the [Web Dashboard](#usage--web-dashboard).
+
 Run `strada --help` to see all commands:
 
 ```
@@ -219,43 +253,7 @@ strada web              # default port 8501
 strada web --port 8080  # custom port
 ```
 
-Opens a browser-based dashboard. See the [Web Dashboard](#usage--web-dashboard) section for details.
-
----
-
-## Usage — Web Dashboard
-
-The web dashboard provides the same functionality as the CLI but through a graphical interface. It is designed for users who are less comfortable with command-line tools.
-
-### Launching
-
-```bash
-strada web
-```
-
-This opens your browser at `http://localhost:8501` with four tabs:
-
-### Tab: 🔍 Verify
-1. Upload your Olyckor and Personer CSV files
-2. Select which checks to run (checkboxes for each G1–G6 and C1–C3)
-3. Click **▶ Run selected checks**
-4. Browse results interactively in expandable tables
-5. Download text or CSV reports
-
-### Tab: 🚲 Classify (Cycling)
-1. Upload your Personer CSV
-2. Click **▶ Run classification**
-3. View the micromobility type distribution
-4. Download the classified dataset
-
-### Tab: 📥 Preprocess
-1. Upload a STRADA Excel workbook
-2. Optionally set a year range filter
-3. Click **▶ Convert**
-4. Download the resulting CSV files
-
-### Tab: ℹ️ About
-Documentation and links.
+Opens the browser-based dashboard — see the [Web Dashboard](#usage--web-dashboard) section above for the walkthrough.
 
 ---
 
@@ -341,7 +339,7 @@ Flags crashes where **all** Cykel entries are passengers (no driver/cyclist). Th
 ---
 ## Quality Scoring
 
-The toolbox produces a single **0–100 quality score** with a letter grade (A/B/C/D/F) plus a per-category breakdown. The score is shown in the Verify tab and in the text report.
+The toolbox produces a single **0–100 quality score** with a 0–5 star rating (EuroNCAP-style) plus a per-category breakdown. The score is shown in the Verify tab and in the text report.
 
 ### How the overall score is calculated
 
@@ -368,17 +366,17 @@ This means:
 - **The rate term grows sub-linearly (√rate)**, so the score stays comparable across datasets of different sizes — the same issue *rate* yields the same deduction whether the dataset has 1,000 or 100,000 rows.
 - Checks that were **not run** contribute nothing (no penalty, no credit).
 
-### Grade letter
+### Star rating
 
-The numeric score maps to a grade via fixed thresholds:
+The numeric score maps to a star rating via fixed thresholds:
 
-| Score range | Grade | Label        |
+| Score range | Stars | Label        |
 |-------------|-------|--------------|
-| ≥ 90        | A     | EXCELLENT    |
-| 75–89       | B     | ACCEPTABLE   |
-| 60–74       | C     | NEEDS WORK   |
-| 40–59       | D     | POOR         |
-| < 40        | F     | FAILING      |
+| ≥ 90        | ★★★★★ | EXCELLENT    |
+| 75–89       | ★★★★☆ | ACCEPTABLE   |
+| 60–74       | ★★★☆☆ | NEEDS WORK   |
+| 40–59       | ★★☆☆☆ | POOR         |
+| < 40        | ☆☆☆☆☆ | FAILING      |
 
 ### Score breakdown (per-category aggregation)
 

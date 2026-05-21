@@ -16,14 +16,27 @@ from strada.core.verify import CheckSpec, QualityScore
 #  Quality-score banner
 # ─────────────────────────────────────────────────────────────────────────────
 
-_GRADE_PILL_COLORS: dict[str, tuple[str, str]] = {
-    # grade letter → (text color, background color)
-    "A": ("#0e5e2c", "#d4f4dd"),
-    "B": ("#8a5a00", "#fff3cd"),
-    "C": ("#a04500", "#ffe4cc"),
-    "D": ("#a02020", "#fcd5d5"),
-    "F": ("#7a1414", "#f7c1c1"),
+_GRADE_PILL_COLORS: dict[int, tuple[str, str]] = {
+    # star rating → (text color, background color)
+    5: ("#0e5e2c", "#d4f4dd"),
+    4: ("#8a5a00", "#fff3cd"),
+    3: ("#a04500", "#ffe4cc"),
+    2: ("#a02020", "#fcd5d5"),
+    0: ("#7a1414", "#f7c1c1"),
 }
+
+
+def _stars_html(filled: int, *, size_em: float, gold: str = "#f5b301", dull: str = "rgba(255,255,255,0.22)") -> str:
+    """Return a row of 5 Unicode stars; first ``filled`` are gold, rest are ``dull``."""
+    parts = [
+        f'<span class="strada-stars" role="img" '
+        f'aria-label="{filled} out of 5 stars" style="font-size:{size_em}em;">'
+    ]
+    for i in range(5):
+        color = gold if i < filled else dull
+        parts.append(f'<span style="color:{color};">&#9733;</span>')
+    parts.append("</span>")
+    return "".join(parts)
 
 
 def _score_color(score: int) -> str:
@@ -45,6 +58,8 @@ def render_quality_banner_html(qs: QualityScore) -> str:
     fallback renderer never re-interprets it as code blocks.
     """
     text_col, bg_col = _GRADE_PILL_COLORS.get(qs.grade, ("#444", "#eee"))
+    big_stars = _stars_html(qs.grade, size_em=4.8)
+    pill_stars_text = f"{qs.grade}&#9733;"  # e.g. "5★"
 
     row_parts: list[str] = []
     for cat in qs.categories:
@@ -83,8 +98,8 @@ def render_quality_banner_html(qs: QualityScore) -> str:
 <div class="strada-score-grid">
 <div class="strada-score-left">
 <div class="strada-score-label">OVERALL DATA QUALITY</div>
-<div class="strada-score-num"><span class="strada-score-big">{qs.overall}</span><span class="strada-score-tot">/ 100</span></div>
-<div><span class="strada-grade-pill" style="background:{bg_col};color:{text_col};">GRADE {qs.grade} &middot; {qs.grade_label}</span></div>
+<div class="strada-score-num">{big_stars}</div>
+<div><span class="strada-grade-pill" style="background:{bg_col};color:{text_col};"> {qs.overall}/100 &middot; {pill_stars_text} &middot; {qs.grade_label}</span></div>
 <div class="strada-score-summary">{summary_html}</div>
 </div>
 <div class="strada-score-right">
